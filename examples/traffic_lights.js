@@ -62,9 +62,9 @@ function trafficLightSimulation(GREEN_TIME, MEAN_ARRIVAL, SEED, SIMTIME) {
     sim.addEntity(Traffic);
 
 //    Uncomment to display logging information
-//    sim.setLogger(function (str) {
-//        document.write(str);
-//    });
+   sim.setLogger(function (str) {
+       document.write(str+'<br>');
+   });
 
     // simulate for SIMTIME time
     sim.simulate(SIMTIME);

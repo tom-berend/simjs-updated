@@ -27,7 +27,7 @@ class ImageView {
     this.text = canvas.text(x, y, this.name);
     this.counters = canvas.text(x, y, '');
     this.counters.hide();
-
+    n log
     this.image.attr({cursor: 'move'});
     this.image.view = this;
     this.image.animate({scale: "1.2 1.2"}, 200, function () {

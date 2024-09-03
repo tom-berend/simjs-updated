@@ -3,7 +3,7 @@ import { Population } from './stats.js';
 import { Request } from './request.js';
 import { Model } from './model.js';
 
-function argCheck(found, expMin, expMax) {
+function argCheck(found:any[], expMin:number, expMax:number) {
   if (found.length < expMin || found.length > expMax) {   // argCheck
     throw new Error('Incorrect number of arguments');   // argCheck
   }   // argCheck
@@ -25,14 +25,18 @@ function argCheck(found, expMin, expMax) {
   }   // argCheck
 }   // argCheck
 
+
+
+
 class Sim {
-  constructor() {
-    this.simTime = 0;
-    this.entities = [];
-    this.queue = new PQueue();
-    this.endTime = 0;
-    this.entityId = 1;
-  }
+    simTime = 0
+    entities = [];
+    queue:PQueue = new PQueue()
+    endTime = 0;
+    entityId = 1;
+
+    constructor() {
+ }
 
   time() {
     return this.simTime;
