@@ -1,8 +1,7 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.Model = void 0;
-class Model {
-    constructor(name) {
+
+
+export class Model {
+    constructor(name:string) {
         this.id = this.constructor._nextId();
         this.name = name || `${this.constructor.name} ${this.id}`;
     }
@@ -14,5 +13,3 @@ class Model {
         return this._totalInstances;
     }
 }
-exports.Model = Model;
-exports.default = Model;
