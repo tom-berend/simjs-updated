@@ -1,4 +1,3 @@
-import { argCheck } from './sim.js';
 
 export class DataSeries {
     name = ''
@@ -161,8 +160,8 @@ export class TimeSeries {
         this.lastTimestamp = timestamp;
     }
 
-    finalize(timestamp:number) {
-        this.record(NaN, timestamp);
+    finalize() {
+        this.record(NaN,NaN);
     }
 
     count() {
@@ -233,8 +232,8 @@ export class Population {
         return this.population;
     }
 
-    finalize(timestamp:number) {
-        this.sizeSeries.finalize(timestamp);
+    finalize() {
+        this.sizeSeries.finalize();
     }
 }
 

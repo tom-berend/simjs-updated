@@ -1,82 +1,95 @@
-import { argCheck } from './sim.js';
+import { Request } from './request.js';
 import { Population } from './stats.js';
-import { Model } from './model.js';
 
-class Queue extends Model {
-    data: any[] = []
-    timestamp: number[] = []
+type QueueElement = {
+    request: Request
+    timestamp: number
+}
+
+export class Queue  {
+
+    requestQueue: QueueElement[]
     stats: Population
 
     constructor(name: string) {
-        super(name);
-        this.data = [];
-        this.timestamp = [];
-        this.stats = new Population();
+        // super(name);
+        this.requestQueue = [];
+        this.stats = new Population(name);
     }
 
-    top() {
-        return this.data[0];
+    /** return the Request from the START of the queue, without removing from queue */
+    top(): Request {
+        if (this.requestQueue.length == 0) {
+            throw new Error('Attempting to remove from an empty queue.')
+        }
+        return this.requestQueue[0].request
     }
 
-    back() {
-        return (this.data.length) ? this.data[this.data.length - 1] : null;
+    /** return the Request from the END of the queue, without removing from queue */
+    back(): Request {
+        if (this.requestQueue.length == 0) {
+            throw new Error('Attempting to remove from an empty queue.')
+        }
+        return this.requestQueue[this.requestQueue.length - 1].request
     }
 
-    push(value, timestamp) {
-        argCheck(arguments, 2, 2);
-        this.data.push(value);
-        this.timestamp.push(timestamp);
+    /** add new request at the END of the queue */
+    push(request: Request, timestamp: number) {
+        this.requestQueue.push({ request, timestamp });
+        this.stats.enter(timestamp);
+    }
+
+    /** add new request at the START of the queue */
+    unshift(request: Request, timestamp: number) {
+        this.requestQueue.unshift({ request, timestamp });
 
         this.stats.enter(timestamp);
     }
 
-    unshift(value, timestamp) {
-        argCheck(arguments, 2, 2);
-        this.data.unshift(value);
-        this.timestamp.unshift(timestamp);
-
-        this.stats.enter(timestamp);
+    /** removes the FIRST item from the queue and returns its request */
+    shift(timestamp: number): Request {
+        const element = this.requestQueue.shift();
+        if (element) {
+            this.stats.leave(element.timestamp, timestamp);
+            return element.request;
+        } else {
+            throw new Error('Attempting to remove from an empty queue.')
+        }
     }
 
-    shift(timestamp: number) {
-
-        const value = this.data.shift();
-
-        const enqueuedAt = this.timestamp.shift();
-
-        this.stats.leave(enqueuedAt, timestamp);
-        return value;
+    /** removes the LAST item from the queue and returns its request */
+    pop(timestamp: number): Request {
+        const element = this.requestQueue.pop();
+        if (element) {
+            this.stats.leave(element.timestamp, timestamp);
+            return element.request;
+        } else {
+            throw new Error('Attempting to remove from an empty queue.')
+        }
     }
 
-    pop(timestamp: number) {
-        const value = this.data.pop();
-        const enqueuedAt = this.timestamp.pop();
 
-        this.stats.leave(enqueuedAt, timestamp);
-        return value;
-    }
-
-    passby(timestamp) {
-        argCheck(arguments, 1, 1);
-
+    /** logs that we entered and left, without changing anything */
+    passby(timestamp: number) {
         this.stats.enter(timestamp);
         this.stats.leave(timestamp, timestamp);
     }
 
-    finalize(timestamp) {
-        argCheck(arguments, 1, 1);
 
-        this.stats.finalize(timestamp);
+    /** finalize the statistics for this process */
+    finalize() {
+        this.stats.finalize();
     }
 
+    /** reset the statistics for this queue */
     reset() {
         this.stats.reset();
     }
 
+    /** clear the statistics for this queue */
     clear() {
         this.reset();
-        this.data = [];
-        this.timestamp = [];
+        this.requestQueue = [];
     }
 
     report() {
@@ -84,33 +97,42 @@ class Queue extends Model {
         this.stats.durationSeries.average()];
     }
 
-    empty() {
-        return this.data.length === 0;
+    /** is this queue empty? */
+    empty(): Boolean {
+        return this.requestQueue.length === 0;
     }
 
+    /** number of elements in this queue */
     size() {
-        return this.data.length;
+        return this.requestQueue.length;
     }
 }
 
-class PQueue extends Model {
-    constructor(name) {
+
+//TODO what is this??
+/**  */
+export class PQueue extends Queue {
+
+    data: any[] = []
+    order = 0
+
+    constructor(name: string) {
         super(name);
         this.data = [];
-        this.order = 0;
+        this.order = 0;     // insertion order?
     }
 
-    greater(ro1, ro2) {
+    /** returns true if ro1.deliverAt > ro2.deliverAt.  If tied, then consider the order they were added.*/
+    greater(ro1: Request, ro2: Request): Boolean {
         if (ro1.deliverAt > ro2.deliverAt) return true;
         if (ro1.deliverAt === ro2.deliverAt) return ro1.order > ro2.order;
         return false;
     }
 
-    insert(ro) {
-        argCheck(arguments, 1, 1);
+    insert(ro: Request) {
         ro.order = this.order++;
 
-        let index = this.data.length;
+        let index = this.data.length;   // total number of requests
 
         this.data.push(ro);
 
@@ -133,14 +155,15 @@ class PQueue extends Model {
         a[index] = node;
     }
 
-    remove() {
+    remove(): Request {
         const a = this.data;
 
         let len = a.length;
 
         if (len <= 0) {
-            return null;
+            throw new Error('Attempting to remove from an empty queue.')
         }
+
         if (len === 1) {
             return this.data.pop();
         }
@@ -176,4 +199,3 @@ class PQueue extends Model {
     }
 }
 
-export { Queue, PQueue };

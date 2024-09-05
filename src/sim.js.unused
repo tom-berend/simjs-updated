@@ -2,8 +2,8 @@ import { Sim, Entity, Event, Buffer, Facility, Store, argCheck } from './lib/sim
 import { DataSeries, TimeSeries, Population } from './lib/stats.js';
 import { Request } from './lib/request.js';
 import { PQueue, Queue } from './lib/queues.js';
-import { Random } from './lib/random.js';
-import { Model } from './lib/model.js';
+import { Random } from './lib/random.ts.unused';
+import { Model } from './lib/model.ts/index.js';
 
 export { Sim, Entity, Event, Buffer, Facility, Store };
 export { DataSeries, TimeSeries, Population };
