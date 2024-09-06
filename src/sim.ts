@@ -5,28 +5,46 @@ import { PQueue, Queue } from './queues.js';
 import { Population } from './stats.js';
 import { Request } from './request.js';
 
-export interface CallbackHandle {
-    callback: Function
-    callbackContext: Object
-    callbackArgument: any
+
+
+export class Debug {
+    static debugLevel: number = 3    // 0=none, 3=all
+    static debugTrace: boolean = true
+
+    /** debug message for Entities, Facilities, stuff that inherits from SIM */
+    static debug(level: number, message: string, color: string = 'white') {
+        if (this.debugLevel >= level) {
+
+            if (this.debugTrace)
+                console.trace('%c' + message, "color:" + color + ";background:'white';")
+            else
+                console.log('%c' + message, `color:'${color}';background:'white';`)
+
+        }
+    }
 }
 
-
+type message = {
+    sender: string
+    message: any
+}
 
 /** root simulation class.  let sim = new Sim() */
 export class Sim {
+    static entities: Entity[] = []   // this tracks every entity
+    static queue: PQueue
+
+
     id: Symbol
     name: string
 
     simTime = 0
-    entities: Entity[]
-    queue: PQueue
     endTime: number
     entityId: number
     source: Buffer | Store | Facility | null
     logger: Function
 
-    debugLevel: number = 3    // 0=none, 3=all
+    messageQueue: message[] = []   // so they don't live on the stack
 
     constructor(name: string = 'System') {
         this.id = Symbol()
@@ -35,22 +53,15 @@ export class Sim {
         this.entityId = 1
         this.endTime = 0
 
-        this.queue = new PQueue(name)
-        this.entities = [];
+        this.messageQueue = []
+
+        if (!Sim.queue)         // static system queue
+            Sim.queue = new PQueue(name)
+
         this.source = null
-        this.logger = (message: string) => console.log(message)
+        this.logger = (message: string) => console.log("%c" + message, "color:blue;background-color:white;")
 
-        this.debug(2,'starting simulation')
-    }
-
-    /** debug message for Etities, Facilities, stuff that inherits from SIM */
-    debug(level:number, message: string, color: string = '') {
-        if (this.debugLevel >= level) {
-            if (color = '')
-                console.trace(message)
-            else
-                console.trace("%c" + message, "color: color")
-        }
+        Debug.debug(2, `creating new entity '${this.name}'`)
     }
 
 
@@ -61,25 +72,36 @@ export class Sim {
     /** send a message to another Entity. */
     sendMessage(message: any, duration: number, toEntities: Entity | Entity[], fromEntity: Entity) {
 
+        Debug.debug(3, `sending ${message} from ${fromEntity.name} to ${toEntities.name}`)
+
         if (toEntities instanceof Array) {
             for (let i = toEntities.length - 1; i >= 0; i--) {
                 const entity = toEntities[i];
 
-                if (entity.id == fromEntity.id) continue;  // not to myself
-
+                if (entity.id == this.id) {
+                    console.error(`Entity '${this.name}' is trying to send message ${message} to itself.`)
+                    continue;  // not to myself
+                }
                 if (entity.onMessage)
                     entity.onMessage(fromEntity, message);
+
             }
-        } else
+        } else {
             if (toEntities.onMessage)
                 toEntities.onMessage(fromEntity, message);
+        }
     }
 
 
-    addEntity(entity: Entity): Entity {
-        this.entities.push(entity);
 
-        entity.start()   // fire the start method of that entity
+
+
+    addEntity(entity: Entity): Entity {
+        Debug.debug(3, `addEntity(Entity ${entity.name} )`)
+
+        Sim.entities.push(entity);
+
+        // entity.start()   // fire the start method of that entity
         return entity    // encourage chaining
     }
 
@@ -88,10 +110,14 @@ export class Sim {
     simulate(endTime: number = 1000000, maxEvents: number = 1000000) {
         let events = 0;
 
+        Sim.entities.map((entity) => (entity as any).start())
+
         try {
 
+            console.log('sim queue',Sim.queue)
+
             // Get the earliest event
-            while (!this.queue.empty()) {
+            while (!Sim.queue.empty()) {
 
                 events++;
                 if (events > maxEvents) {
@@ -99,11 +125,11 @@ export class Sim {
                     break;
                 }
 
-                const ro: Request = this.queue.remove();
+                const ro: Request = Sim.queue.remove();
 
                 // Uh oh.. we are out of time now
                 if (ro.deliverAt > endTime) {
-                    this.logger(`Current request exceeds endtime ${endTime} seconds. simulation terminated.`)
+                    this.logger(`Current request exceeds endtime ${endTime} seconds.simulation terminated.`)
                     break;
                 }
 
@@ -116,7 +142,7 @@ export class Sim {
                 }
             }
 
-            this.logger(`Queue is empty. Simulation has ended after ${events} events.`)
+            this.logger(`Queue is empty.Simulation has ended after ${events} events.`)
             this.finalize();
 
         } catch (error) {
@@ -127,7 +153,7 @@ export class Sim {
 
     step() {
         while (true) {  // eslint-disable-line no-constant-condition
-            const ro = this.queue.remove();
+            const ro = Sim.queue.remove();
 
             if (ro === null) return false;
             this.simTime = ro.deliverAt;
@@ -139,28 +165,20 @@ export class Sim {
     }
 
     finalize() {
-        for (let i = 0; i < this.entities.length; i++) {
-            this.entities[i].finalize();
-        }
+        // this is just a recursive call, what are we doing?
+        //     Sim.entities.map((entity) => entity.finalize());
     }
 
     setLogger(logger: Function) {
         this.logger = logger;
     }
 
-    log(message: string, entity: Sim) {   // all entities, facilities, etc  are descended from sim
+    log(message: string) {   // all entities, facilities, etc  are descended from sim
 
         if (!this.logger) return;
         let entityMsg = '';
 
-        if (typeof entity !== 'undefined') {
-            if (entity.name) {
-                entityMsg = ` [${entity.name}]`;
-            } else {
-                entityMsg = ` [${entity.id}] `;
-            }
-        }
-        this.logger(`${this.simTime.toFixed(6)}${entityMsg}   ${message}`);
+        this.logger(`${this.name}:  ${this.simTime.toFixed(6)}${entityMsg}   ${message}`);
     }
 }
 
@@ -175,8 +193,9 @@ export class Facility extends Sim {
     servers: number
     free: number
     serverStatus: Boolean[] = []
+    facilityQueue: PQueue
     maxqlen: number  //-1 is unlimited
-//    queue: PQueue     // already in SIM
+    //    queue: PQueue     // already in SIM
     discipline: 'LCFS' | 'PS' | 'FCFS'
     stats: Population
     busyDuration = 0
@@ -189,7 +208,7 @@ export class Facility extends Sim {
         this.servers = servers
         this.free = servers
         this.maxqlen = maxqlen
-        this.queue = new PQueue(name + ' queue')
+        this.facilityQueue = new PQueue(name + ' queue')
         this.discipline = discipline
 
         switch (discipline) {
@@ -210,7 +229,7 @@ export class Facility extends Sim {
     }
 
     reset() {
-        this.queue.reset();
+        this.facilityQueue.reset();
         this.stats.reset();
         this.busyDuration = 0;
     }
@@ -220,7 +239,7 @@ export class Facility extends Sim {
     }
 
     queueStats() {
-        return this.queue.stats;
+        return this.facilityQueue.stats;
     }
 
     usage() {
@@ -230,15 +249,15 @@ export class Facility extends Sim {
     /** propagate finalize to  */
     finalize() {
         this.stats.finalize();
-        this.queue.stats.finalize();
+        this.facilityQueue.stats.finalize();
     }
 
     useFCFS(duration: number, ro: Request) {
         if ((this.maxqlen === 0 && !this.free)
             || (this.maxqlen > 0 && this.queue.size() >= this.maxqlen)) {
-            ro.message = -1;
+            ro.data = -1;
             ro.deliverAt = this.time();
-            ro.toEntity.queue.insert(ro);
+            Sim.queue.insert(ro);
             return;
         }
 
@@ -246,14 +265,14 @@ export class Facility extends Sim {
         const now = this.time();
 
         this.stats.enter(now);
-        this.queue.push(ro, now);
+        this.facilityQueue.push(ro, now);
         this.useFCFSSchedule(now);
     }
 
     useFCFSSchedule(timestamp: number) {
 
-        while (this.free > 0 && !this.queue.empty()) {
-            const ro = this.queue.shift(timestamp);
+        while (this.free > 0 && !this.facilityQueue.empty()) {
+            const ro = this.facilityQueue.shift(timestamp);
 
             if (ro.cancelled) {
                 continue;
@@ -262,7 +281,7 @@ export class Facility extends Sim {
 
                 if (this.serverStatus[i]) {
                     this.serverStatus[i] = false;
-                    ro.message = i;
+                    ro.data = i;
                     break;
                 }
             }
@@ -284,7 +303,7 @@ export class Facility extends Sim {
     useFCFSCallback(ro: Request) {
         // We have one more free server
         this.free++;
-        this.serverStatus[ro.message] = true;
+        this.serverStatus[ro.data] = true;
 
         this.stats.leave(ro.scheduledAt, ro.toEntity.time());
 
@@ -305,7 +324,7 @@ export class Facility extends Sim {
             this.currentRO.remaining = (
                 this.currentRO.deliverAt - this.currentRO.toEntity.time());
             // preempt it..
-            this.queue.push(this.currentRO, ro.toEntity.time());
+            this.facilityQueue.push(this.currentRO, ro.toEntity.time());
         }
 
         this.currentRO = ro;
@@ -324,7 +343,7 @@ export class Facility extends Sim {
 
         // schedule this new event
         ro.deliverAt = ro.toEntity.time() + duration;
-        ro.toEntity.queue.insert(ro);
+        Sim.queue.insert(ro);
     }
 
     useLCFSCallback(ro: Request) {
@@ -357,8 +376,8 @@ export class Facility extends Sim {
         }
 
         // see if there are pending requests
-        if (!this.queue.empty()) {
-            const newRO = this.queue.pop(this.time());
+        if (!this.facilityQueue.empty()) {
+            const newRO = this.facilityQueue.pop(this.time());
 
             this.useLCFS(newRO.remaining, newRO);
         }
@@ -374,13 +393,13 @@ export class Facility extends Sim {
     useProcessorSharingSchedule(ro: Request, isAdded: Boolean) {
         const current = ro.toEntity.time();
 
-        const size = this.queue.size()
+        const size = this.facilityQueue.size()
 
         const multiplier = isAdded ? ((size + 1.0) / size) : ((size - 1.0) / size);
 
         const newQueue = [];
 
-        if (this.queue.size() == 0) {
+        if (this.facilityQueue.size() == 0) {
             this.lastIssued = current;
         }
 
@@ -747,7 +766,7 @@ export class Event extends Sim {
     addWaitList(ro: Request) {
         if (this.isFired) {
             ro.deliverAt = ro.toEntity.time();
-            ro.toEntity.queue.insert(ro);
+            Sim.queue.insert(ro);
             return;
         }
         this.waitList.push(ro);
@@ -759,7 +778,7 @@ export class Event extends Sim {
     addQueue(ro: Request) {
         if (this.isFired) {
             ro.deliverAt = ro.toEntity.time();
-            ro.toEntity.queue.insert(ro);
+            Sim.queue.insert(ro);
             return;
         }
         this.eventQueue.push(ro);
@@ -801,28 +820,30 @@ export class Entity extends Sim {
         super(name);
     }
 
-    /** dummy start() - every entity must override this method */
-    start() {
-        throw new Error(`Entity class ${this.name} must define a start() method.`);
-    }
+    // /** dummy start() - every entity must override this method */
+    // start() {
+    //     throw new Error(`Entity class $ {this.name} must define a start() method.`);
+    // }
 
     /** dummy onMessage() - if entity doesn't provide this method then simulation shouldn't send a message */
     onMessage(sender: Entity, message: any) {
-        throw new Error(`Entity class ${this.name} received a message from ${sender.name}, but has no onMessage() method.`);
+        throw new Error(`Entity class $ {this.name} received a message from ${sender.name}, but has no onMessage() method.`);
     }
 
 
     time(): number {
-        return this.time();
+        return this.simTime;
     }
 
     setTimer(duration: number): Request {
+        Debug.debug(3, `SetTimer(): Creating a new Request '${this.name}'`)
+
         const ro = new Request(
             this,
             this.time(),
             this.time() + duration,);
 
-        this.queue.insert(ro);
+        Sim.queue.insert(ro);
         return ro;
     }
 
@@ -892,18 +913,18 @@ export class Entity extends Sim {
     * string, each player appends his/her name to the string. We will model
     * the two players as entities and the string as a message.
     *
-    * ``` {.js}
-    * class Player extends Sim.Entity{
+    * ``` {.js }
+    * class Player extends Sim.Entity {
     *     start() {
     *         if (this.firstServer) {
     *             // Send the string to other player with delay = 0.
-    *             this.send("INITIAL", 0, this.opponent);
+    * this.send("INITIAL", 0, this.opponent);
     *         }
     *     },
     *     onMessage(sender, message) {
     *         // Receive message, add own name and send back
     *         var newMessage = message + this.name;
-    *         this.send(newMessage, HOLDTIME, sender);
+    * this.send(newMessage, HOLDTIME, sender);
     *     }
     * };
     *
@@ -918,7 +939,7 @@ export class Entity extends Sim {
     * jack.opponent = jill;
     *
     * sim.simulate(SIMTIME);
-    ```
+```
     */
     send(message: any, delay: number, toEntity: Entity) {
 
@@ -927,9 +948,8 @@ export class Entity extends Sim {
         // ro.source = this;   // the entity who SENT the message
         // ro.deliver = this.sendMessage;
 
-        this.queue.insert(ro);
+        Sim.queue.insert(ro);
     }
 
 }
-
 

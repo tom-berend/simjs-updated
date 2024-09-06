@@ -1,4 +1,4 @@
-import { Store, Buffer, Event, Entity, Facility, CallbackHandle } from './sim.js'
+import { Store, Buffer, Event, Entity, Facility, Debug } from './sim.js'
 
 
 
@@ -9,7 +9,7 @@ import { Store, Buffer, Event, Entity, Facility, CallbackHandle } from './sim.js
 export class Request {
     id: symbol
     toEntity: Entity | Facility
-    message: any
+    data: any   // a freeform datastore in this Request
     source: Object   // shouldn't be necessary, callback knows
     scheduledAt: number
     deliverAt: number
@@ -32,6 +32,7 @@ export class Request {
 
 
     constructor(toEntity: Entity | Facility, currentTime: number, deliverAt: number, source: Object = {}) {
+
         this.id = Symbol()
         this.toEntity = toEntity;
         this.scheduledAt = currentTime;
@@ -44,6 +45,9 @@ export class Request {
         this.filter = () => true
         this.obj = () => true
         this.saved_deliver = toEntity
+
+        Debug.debug(3, `Create Request to ${toEntity.name} at ${currentTime}, deliverAt ${deliverAt}`)
+
     }
 
     /** cancel this Request, unless it is the main Request or noRenege */
@@ -96,7 +100,7 @@ export class Request {
 
     /**  Set a timeout value to the request. If the request is not satisfied within
      * the timeout value, it will be terminated and the entity will be notified. */
-    waitUntil(delay: number, callback: (ro:Request)=>void, callbackContext: any = {}, callbackArgument: any = ''): Request {
+    waitUntil(delay: number, callback: (ro: Request) => void, callbackContext: any = {}, callbackArgument: any = ''): Request {
         if (this.noRenege) return this;
 
         const ro = this._addRequest(
@@ -109,7 +113,7 @@ export class Request {
     /** Put the request in the wait queue of one or more events. If any one
      * of those events is fired, the request will be terminated and the entity
      * will be notified. */
-    unlessEvent(event: Event | Event[], callback: (ro:Request)=>void, callbackContext: any = {}, callbackArgument: any = ''): Request {
+    unlessEvent(event: Event | Event[], callback: (ro: Request) => void, callbackContext: any = {}, callbackArgument: any = ''): Request {
         if (this.noRenege) return this;
 
         if (event instanceof Event) {
@@ -130,10 +134,9 @@ export class Request {
         return this;
     }
 
-    /** Assign some user data for this request, which will be returned back
-     * when the simulator notifies the entity about the request. */
-    setMessage(message: any): Request {
-        this.message = message;
+    /** Assign some user data for this request, which can be returned back anytime */
+    setData(data: any): Request {
+        this.data = data;
         return this;
     }
 
@@ -151,9 +154,9 @@ export class Request {
 
         this.callbacks.map((callbackfn: (ro: Request) => void) => { callbackfn(this) })
 
-            // this._doCallback(this.source,
-            //     this.message,
-            //     this.message);   // was this.data, how different from message?
+        // this._doCallback(this.source,
+        //     this.message,
+        //     this.message);   // was this.data, how different from message?
         // }
 
     }
