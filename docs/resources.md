@@ -22,7 +22,7 @@ follows:
     It waits there until other entities in front of it are done using
     the facility (also see the *Scheduling Disciplines* below).
 
-3.  
+3.
 
     If the facility is free or when the entity is done waiting in the queue, the entity is given access to the facility. This is modeled as:
 

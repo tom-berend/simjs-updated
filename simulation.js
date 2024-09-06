@@ -37,6 +37,8 @@ import { TXG } from './lib/tsxgraph.js';
 // jack.firstServer = true;
 // jack.opponent = jill;
 // sim.simulate();
+// What is average duration that vehicles have to wait at the intersection?
+// What is the average number of vehicles that are waiting at the intersection?
 let GREEN_TIME = 100;
 let MEAN_ARRIVAL = 10;
 let SIMTIME = 1000;

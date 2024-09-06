@@ -1,64 +1,21 @@
 
 import { Sim, Entity, Facility, Event, Model } from './src/sim.js'
 import { Population } from './src/stats.js'
-import { TXG} from './lib/tsxgraph.js'
-
-// class Player extends Entity {
-//     firstServer = false
-//     messageCount = 0
-
-//     constructor(name: string) {
-//         super(name)
-//     }
-
-//     opponent: Entity | null = null   // we will find out
-
-//     /** start of player entity */
-//     start() {
-//         Debug.debug(1, `start() Player '${this.name} ${this.firstServer}'`)
-//         if (this.firstServer) {
-//             // Send the string to other player with delay = 0.
-//             if (this.opponent !== null) {
-//                 this.sendMessage("INITIAL", 0, [this.opponent], this);
-//             } else {
-//                 throw ("I'm the first server, but unknown opponent")
-//             }
-//         }
-//     }
-
-//     onMessage(sender: Entity, message: any) {
-//         Debug.debug(1, `start() Player '${this.name} ${this.firstServer}'`)
-//         // Receive message, add own name and send back
-//         let newMessage = `message ${this.messageCount}  this.name`;
-//         Debug.debug(1,newMessage,'blue')
-//         if (this.messageCount++ < 10)
-//             this.sendMessage(newMessage, 10, [sender], this);  // 10 second hold?
-
-//     }
-// };
-
-// let sim = new Sim();
-
-// let jack = new Player('Jack')
-// sim.addEntity(jack)
-// let jill = new Player('Jill')
-// sim.addEntity(jill)
-
-// jack.firstServer = true;
-// jack.opponent = jill;
-
-// sim.simulate();
-
-
-
-
+import { TXG } from './lib/tsxgraph.js'
 
 
 
 
 // What is average duration that vehicles have to wait at the intersection?
 // What is the average number of vehicles that are waiting at the intersection?
-
+//
+// We will model the traffic lights as Events. We will have two events, one for the
+// North-South street and another for the East-West Street.
+//
+// We will model the traffic as one Entity, that will generate requests to cross the
+// intersection. This entity will generate four exponential IID requests (for the
+// vehicles in four directions).
+//
 
 
 let GREEN_TIME = 100
@@ -67,19 +24,24 @@ let SIMTIME = 1000
 
 
 let sim = new Sim();
-let TSX = TXG.TSXGraph.initBoard('jsxbox',{axis:true})
+let TSX = TXG.TSXGraph.initBoard('jsxbox', { axis: true })
 
+// create the two events
 let trafficLights = [
     new Event("North-South Light"),
     new Event("East-West Light")
 ];
 
+// create a Population object to monitor the statistics
 let stats = new Population("Waiting at Intersection");
 
+
+// an entity to control the traffic lights, periodically turns off lights in one
+// direction and turns on the other.
 class LightController extends Entity {
     currentLight = 0  // the light that is turned on currently
 
-    constructor(name:string){
+    constructor(name: string) {
         super(name)
     }
 
@@ -103,8 +65,10 @@ class LightController extends Entity {
     }
 };
 
+
+
 class Traffic extends Entity {
-    constructor(name:string){
+    constructor(name: string) {
         super(name)
     }
 
@@ -122,6 +86,7 @@ class Traffic extends Entity {
         // wait on the light.
         // The done() function will be called when the event fires
         // (i.e. the light turns green).
+
         this.waitEvent(light).done(function () {
             let arrivedAt = this.callbackData;
             // STATS: record that vehicle has left the intersection
@@ -130,8 +95,9 @@ class Traffic extends Entity {
         }).setData(this.time());
 
         // Repeat for the next car. Call this function again.
-        var nextArrivalAt = TSX.StatisticsMath.randomExponential(1.0 / MEAN_ARRIVAL);
-        this.setTimer(nextArrivalAt).done(()=>this.generateTraffic(direction, light));
+        let nextArrivalAt = TSX.StatisticsMath.randomExponential(1.0 / MEAN_ARRIVAL);
+        let ro = this.setTimer(nextArrivalAt).done(() => this.generateTraffic(direction, light));
+        console.log('%ctimer ro','background-color:blue;',ro)
     }
 };
 

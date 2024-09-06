@@ -1,13 +1,44 @@
-import { Store, Buffer, Event, Entity, Facility, Debug } from './sim.js'
+import {Model, Entity, Facility} from './sim.js'
+import {PQueue} from './queue.js'
 
 
-
-/** When an entity makes a request to the simulation -- such as
+/* When an entity makes a request to the simulation -- such as
  * set a timer, use a facility, etc -- the simulator returns backs
  * a Request object. The entity can use this Request object to
- * further modify the original request. */
-export class Request {
-    id: symbol
+ * further modify the original request.
+ *
+ * The Request object is returned when an entity makes any of the following requests:
+ *
+ * setTimer()      set a timer
+ * useFacility()   use a facility
+ * putBuffer()     put tokens in a buffer
+ * getBuffer()     get tokens from buffer
+ * putStore()      store objects in a store
+ * getStore()      retrieve object from a store
+ * waitEvent()     wait on an event
+ * queueEvent()    queue on an event
+ *
+ * The Request object can then be used to modify the request in the following ways:
+ *
+ * done()         Assign functions that must be called when the request is satisfied.
+ * waitUntil()    Set a timeout value to the request. If the request is not satisfied within the timeout value,
+ *                      it will be terminated and the entity will be notified.
+ * unlessEvent()  Put the request in the wait queue of one or more Events. If any one of those events is fired,
+ *                      the request will be terminated and the entity will be notified.
+ * setData():     Assign some user data for this request, which will be returned back when the simulator notifies
+ *                      the entity about the request.
+ * cancel():      Cancel the request.
+ */
+
+
+
+export class Request extends Model  {
+    timeStamp: number  // this used to be in queueElement,for FIFO, LIFO, Priority
+                       // moved here to simplify heap.  The queue has a comparator,
+                       // for FIFO, use time()
+                       // for LIFO, use 0-time()
+                       // for PRIORITY, use priority    etc
+
     toEntity: Entity | Facility
     data: any   // a freeform datastore in this Request
     source: Object   // shouldn't be necessary, callback knows
@@ -32,8 +63,8 @@ export class Request {
 
 
     constructor(toEntity: Entity | Facility, currentTime: number, deliverAt: number, source: Object = {}) {
+        super ('request')
 
-        this.id = Symbol()
         this.toEntity = toEntity;
         this.scheduledAt = currentTime;
         this.deliverAt = deliverAt;
@@ -46,7 +77,7 @@ export class Request {
         this.obj = () => true
         this.saved_deliver = toEntity
 
-        Debug.debug(3, `Create Request to ${toEntity.name} at ${currentTime}, deliverAt ${deliverAt}`)
+        Model.debug(3, `Create Request to ${toEntity.name} at ${currentTime}, deliverAt ${deliverAt}`)
 
     }
 
@@ -106,7 +137,7 @@ export class Request {
         const ro = this._addRequest(
             this.scheduledAt + delay, callback);
 
-        this.toEntity.queue.insert(ro);
+        Model.queue.insert(ro);
         return this;
     }
 
@@ -119,7 +150,7 @@ export class Request {
         if (event instanceof Event) {
             const ro = this._addRequest(0, callback);
 
-            ro.message = event;
+            ro.data = event;
             event.addWaitList(ro);
 
         } else if (event instanceof Array) {
@@ -127,7 +158,7 @@ export class Request {
 
                 const ro = this._addRequest(0, callback);
 
-                ro.message = event[i];
+                ro.data = event[i];
                 event[i].addWaitList(ro);
             }
         }
@@ -140,7 +171,9 @@ export class Request {
         return this;
     }
 
+
     deliver() {
+        console.log('%cin deliver()','color:blue',this)
         if (this.cancelled) return;
         this.cancel();
         if (!this.callbacks) return;

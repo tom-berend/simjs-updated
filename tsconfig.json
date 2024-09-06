@@ -8,6 +8,7 @@
     },
     "include": [
         "simulation.ts",
+        "traffic.ts",
         "src/lib/**/*"
     ]
   }
