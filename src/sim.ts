@@ -17,6 +17,9 @@ export class Sim extends Model {
     isRealTime: boolean
     realTimeClock: number = 0
 
+    events = 0;
+    messages = 0
+
     constructor(name: string = 'Sim', isRealTime: boolean = false) {
         super(name)
 
@@ -30,8 +33,6 @@ export class Sim extends Model {
 
     /** run the simulation for a specific # of seconds or to max events */
     async simulate(endTime: number = 1000000, maxEvents: number = 1000000) {
-        let events = 0;
-        let messages = 0
 
         // fire all the start functions
         this.startList.map((entity: Entity) => entity['start']())
@@ -43,7 +44,7 @@ export class Sim extends Model {
             while (!Model.queue.empty()) {
 
 
-                if (events > maxEvents) {
+                if (this.events > maxEvents) {
                     console.log(`Simulation exceeded ${maxEvents} steps, terminated.`)
                     break;
                 }
@@ -69,7 +70,7 @@ export class Sim extends Model {
                 }
 
                 console.log('%c about to deliver', 'color:pink;', ro)
-                events += 1
+                this.events += 1
 
                 console.log('%c switch', 'color:green;', ro)
                 switch (ro.createdWith) {
@@ -87,9 +88,9 @@ export class Sim extends Model {
                         break;
 
                     case 'sendMessage':        //   send a message entity-to-entity
-                        this.processMessage(ro.message, ro.toEntity, ro.toMethod)
+                        ro.callbacks[0](ro)    //   always only one callback
                         ro.cancel()
-                        messages += 1
+                        this.messages += 1
                         continue
                     default:
                         throw new Error(`unknown Request, created with command ${ro.createdWith}`)
@@ -98,7 +99,7 @@ export class Sim extends Model {
 
             }
 
-            console.log(`Queue is empty.Simulation has ended in ${Model.simTime} seconds, ${events} events, ${messages} messages.`)
+            console.log(`Queue is empty.Simulation has ended in ${Model.simTime} seconds, ${this.events} events, ${this.messages} messages.`)
             this.finalize();
 
         } catch (error) {
@@ -162,57 +163,16 @@ export class Sim extends Model {
     * the two players as entities and the string as a message.
     *
     */
-    sendMessage(message: any, delay: number, toEntity: Entity, toMethod: string) {
-        // we just set up as if a timer,
+    sendMessage(callback: Function, delay: number, toEntity: Entity) {
+        // we just set up as if a timer.  the callback does all the work
 
         const ro = new Request(Model.simTime + delay, 'sendMessage');
         // ro.createdBy = fromEntity
         ro.createdAt = Model.simTime
-        ro.message = message
-        ro.toEntity = toEntity
-        ro.toMethod = toMethod
-
-        let callback = () => (toEntity as any).toMethod(message)
         ro.callbacks.push(callback)
 
         Model.queue.insert(ro);
     }
-
-    processMessage(message: any, toEntity: Entity | Entity[], method:string) {
-        console.log('processMessage', message, toEntity)
-
-        // TODO: make sure the receiving entity has an OnMessage() method
-        if (toEntity instanceof Array) {
-            for (let i = toEntity.length - 1; i >= 0; i--) {
-                const entity = toEntity[i];
-                this._processMessageHelper(message, entity, method)  // blast to each of array
-            }
-        } else {
-            this._processMessageHelper(message, toEntity, method)   // single message
-        }
-    }
-
-    // helper function for sending Messages
-    _processMessageHelper(message: any, entity: Entity, method: string) {
-        console.log('processMessage', message, entity)
-        if (entity.id == this.id) {
-            console.error(`Entity '${entity.name}' is trying to send message ${message} to itself.`)
-            return
-        }
-        // if (!Object.hasOwn(entity, 'onMessage')) {    ?? this doesn't work ??
-        if (!(typeof entity[method] === 'function')) {
-            throw new Error(`sending ${message} to ${entity.name}}, but no ${method} method`)
-        }
-
-        // looks good
-        (entity as any).onMessage(this, message);
-        // console.log(this)
-        // let codeToExecute = `(entity as any).${method}(this, ${message});`
-        // let tmpFunc = new Function(codeToExecute);
-        // tmpFunc();
-
-    }
-
 
 }
 

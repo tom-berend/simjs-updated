@@ -51,7 +51,7 @@ export class Request {
     createdAt: number
     scheduledAt: number
     deliverAt: number
-    callbacks: ((ro: Request) => void)[]
+    callbacks: Function[]
     cancelled: Boolean
     // group: Request[]    // groups arentn't used
     noRenege = true
@@ -69,10 +69,6 @@ export class Request {
     lastIssued: number = 0 // referenced by facility
     remaining: number = 0 // referenced by facility
     saved_deliver: Entity | Facility | null // referenced by facility
-
-    message: any = ''                           // used by messages
-    toEntity: Entity | Entity[] | null = null   // used by messages
-    toMethod: string = ''                       // used by messages
 
 
 
