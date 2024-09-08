@@ -7,8 +7,8 @@
       "lib": ["ESNext", "DOM"],
     },
     "include": [
-        "simulation.ts",
-        "traffic.ts",
+        "patterns/messages.ts",
+        "patterns/traffic.ts",
         "src/lib/**/*"
     ]
   }

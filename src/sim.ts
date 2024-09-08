@@ -1,153 +1,62 @@
 //TODO:  check out https://github.com/ed-sim/ed-sim-js
 
+import { Model } from './model.js'
 import { Population } from './stats.js';
-import {PQueue} from './queue.js'
+import { PriorityQueue } from './queue.js'
+import { Request } from './request.js'
+
 
 // the system has Entities, Events, Stores, Buffers, Facilities that extend Model
 
 
-export class Model {
-    static entities: Entity[] = []   // this tracks every entity so we can start() them.
-    static simTime = 0
-
-    static debugLevel: number = 3    // 0=none, 1=Creation 2=Imporant 3=all
-    static debugTrace: boolean = false
-
-    id: Symbol          // for classes that descends from Model, every instance is unique
-    name:string
-    logger: Function   // this is the function that logs, override it with setLogger()
-
-    constructor(name: string) {
-        this.name = name
-        this.id = Symbol()
-        this.logger = (message: string) => console.log(`%c ${this.name}:  message`, "color:blue;background-color:white;")
-    }
-
-    /** override the logger function */
-    setLogger(logger: Function) {
-        this.logger = logger;
-    }
-
-    log(message: string) {   // all entities, facilities, etc  are descended from sim
-        if (!this.logger) return
-        let entityMsg = '';
-
-        this.logger(`${this.name}:  ${Model.simTime.toFixed(6)}${entityMsg}   ${message}`);
-    }
-
-    /** debug message for Entities, Facilities, stuff that inherits from SIM */
-    static debug(level: number, message: string, color: string = 'white') {
-        if (this.debugLevel >= level) {
-
-            if (this.debugTrace)
-                console.trace('%c' + message, "color:" + color + ";background:'white';")
-            else
-            console.log('%c' + message, `color:'${color}';background:'white';`)
-
-    }
-}
-}
-
-type message = {
-    sender: string
-    message: any
-}
-
-/** root simulation class.  let sim = new Sim() */
+/** root simulation class.  let sim = new Sim(name, isRealTime) */
 export class Sim extends Model {
 
-    static queue: PQueue   // there is only one queue
+    startList: Entity[] = []   // these are the 'start' functions for every entity
 
-    endTime: number
-    entityId: number
-    source: Buffer | Store | Facility | null
+    isRealTime: boolean
+    realTimeClock: number = 0
 
-    messageQueue: message[] = []   // so they don't live on the stack
-
-    constructor(name: string = 'System') {
+    constructor(name: string = 'Sim', isRealTime: boolean = false) {
         super(name)
-        this.name = name
-        this.entityId = 1
-        this.endTime = 0
 
-        this.messageQueue = []
-
-        if (!Model.queue)         // static system queue
-            Model.queue = new PQueue(name)
-
-        this.source = null
-
-        Model.debug(2, `creating new entity '${this.name}'`)
+        this.isRealTime = isRealTime
+        // set the real-time clock ticking
+        setInterval(() => this.realTimeClock += .1, 100)  // not very accurate
     }
 
-
-    time(): number {
-        return Model.simTime;
-    }
-
-    /** send a message to another Entity. */
-    sendMessage(message: any, duration: number, toEntities: Entity | Entity[], fromEntity: Entity) {
-
-        Model.debug(3, `sending ${message} from ${fromEntity.name} to ${(toEntities as any).name}`)
-
-        if (toEntities instanceof Array) {
-            for (let i = toEntities.length - 1; i >= 0; i--) {
-                const entity = toEntities[i];
-
-                if (entity.id == this.id) {
-                    console.error(`Entity '${this.name}' is trying to send message ${message} to itself.`)
-                    continue;  // not to myself
-                }
-                if (entity.onMessage)
-                    entity.onMessage(fromEntity, message);
-
-            }
-        } else {
-            if (toEntities.onMessage)
-                toEntities.onMessage(fromEntity, message);
-        }
-    }
-
-
-
-
-
-    addEntity(entity: Entity): Entity {
-        Model.debug(3, `addEntity(Entity ${entity.name} )`)
-
-        Sim.entities.push(entity);
-
-        // entity.start()   // fire the start method of that entity
-        return entity    // encourage chaining
-    }
+    debug(level: number, message: string) { }
 
 
     /** run the simulation for a specific # of seconds or to max events */
-    simulate(endTime: number = 1000000, maxEvents: number = 1000000) {
+    async simulate(endTime: number = 1000000, maxEvents: number = 1000000) {
         let events = 0;
+        let messages = 0
 
-        Model.entities.map((entity) => (entity as any).start())
+        // fire all the start functions
+        this.startList.map((entity: Entity) => entity['start']())
 
+        console.log('in simulate, sim queue size', Model.queue.size())
         try {
-
-            console.log('sim queue',Model.queue)
 
             // Get the earliest event
             while (!Model.queue.empty()) {
 
-                events++;
+
                 if (events > maxEvents) {
-                    this.logger(`Simulation exceeded ${maxEvents} steps, terminated.`)
+                    console.log(`Simulation exceeded ${maxEvents} steps, terminated.`)
                     break;
                 }
 
+                // we know there is an element in the queue (our while loop)
                 const ro: Request = Model.queue.remove();
-                console.log('removed this Request:',ro, ro.deliverAt)
+                console.log('processing next  Request:', ro)
 
 
                 // Uh oh.. we are out of time now
+                console.log(ro)
                 if (ro.deliverAt > endTime) {
-                    this.logger(`Current request exceeds endtime ${endTime} seconds.simulation terminated.`)
+                    console.log(`Current request exceeds endtime ${endTime} seconds.simulation terminated.`)
                     break;
                 }
 
@@ -155,13 +64,41 @@ export class Sim extends Model {
                 Model.simTime = ro.deliverAt;
 
                 // If this event is already cancelled, ignore
-                console.log('%c about to deliver','color:pink;',ro)
-                if (!ro.cancelled) {
-                    ro.deliver();
+                if (ro.cancelled) {
+                    continue
                 }
+
+                console.log('%c about to deliver', 'color:pink;', ro)
+                events += 1
+
+                console.log('%c switch', 'color:green;', ro)
+                switch (ro.createdWith) {
+                    case 'setTimer':           //   set a timer
+                        ro.deliver();
+                        continue;
+
+                    case 'useFacility':        //   use a facility
+                    case 'putBuffer':          //   put fungible tokens in a buffer
+                    case 'getBuffer':          //   get tokens from buffer
+                    case 'putStore':           //   store distinct objects in a store
+                    case 'getStore':           //   retrieve object from a store
+                    case 'waitEvent':          //   wait on an event
+                    case 'queueEvent':         //   queue on an event
+                        break;
+
+                    case 'sendMessage':        //   send a message entity-to-entity
+                        this.processMessage(ro.message, ro.toEntity, ro.toMethod)
+                        ro.cancel()
+                        messages += 1
+                        continue
+                    default:
+                        throw new Error(`unknown Request, created with command ${ro.createdWith}`)
+                }
+
+
             }
 
-            this.logger(`Queue is empty.Simulation has ended after ${events} events.`)
+            console.log(`Queue is empty.Simulation has ended in ${Model.simTime} seconds, ${events} events, ${messages} messages.`)
             this.finalize();
 
         } catch (error) {
@@ -170,25 +107,116 @@ export class Sim extends Model {
     }
 
 
-    step() {
-        while (true) {  // eslint-disable-line no-constant-condition
-            const ro = Model.queue.remove();
 
-            if (ro === null) return false;
-            Model.simTime = ro.deliverAt;
-            if (ro.cancelled) continue;
-            ro.deliver();
-            break;
-        }
-        return true;
+
+
+    time() {
+        return Model.simTime
     }
+
+    addEntity(entity: Entity): Entity {
+        this.debug(3, `addEntity(Entity ${entity.name})`);
+
+        // create a list of 'start()' calls to kick off the simulation
+
+        // if (!Object.hasOwn(entity, 'start')) {      // ?? this doesn't work ??
+        if (!(typeof entity['start'] === 'function')) {
+            console.log(entity)
+            throw new Error(`Entity ${entity.name} does not have a start() method.It is required.`)
+        }
+
+        this.startList.push(entity)
+
+        // entity.start()   // fire the start method of that entity
+        return entity    // encourage chaining
+    }
+
+
+    // step() {
+    //     while (true) {  // eslint-disable-line no-constant-condition
+    //         const ro = Sim.queue.remove();
+
+    //         if (ro === null)
+    //             return false;
+    //         Model.simTime = ro.deliverAt;
+    //         if (!ro.cancelled)
+    //             ro.deliver();
+    //         break;
+    //     }
+    //     return true;
+    // }
 
     finalize() {
         // this is just a recursive call, what are we doing?
         //     Sim.entities.map((entity) => entity.finalize());
     }
 
+    // messages are always to Entities, but maybe from ???.   So park processMessage in Request
+
+    /** Messages are objects that entities can send to each other. The messages
+    * can be any JavaScript type \-- numbers, string, functions, arrays, objects etc.
+    *
+    * As an example, consider a ping-pong game played by two players where
+    * they send a string back and forth to each other. Before resending the
+    * string, each player appends his/her name to the string. We will model
+    * the two players as entities and the string as a message.
+    *
+    */
+    sendMessage(message: any, delay: number, toEntity: Entity, toMethod: string) {
+        // we just set up as if a timer,
+
+        const ro = new Request(Model.simTime + delay, 'sendMessage');
+        // ro.createdBy = fromEntity
+        ro.createdAt = Model.simTime
+        ro.message = message
+        ro.toEntity = toEntity
+        ro.toMethod = toMethod
+
+        let callback = () => (toEntity as any).toMethod(message)
+        ro.callbacks.push(callback)
+
+        Model.queue.insert(ro);
+    }
+
+    processMessage(message: any, toEntity: Entity | Entity[], method:string) {
+        console.log('processMessage', message, toEntity)
+
+        // TODO: make sure the receiving entity has an OnMessage() method
+        if (toEntity instanceof Array) {
+            for (let i = toEntity.length - 1; i >= 0; i--) {
+                const entity = toEntity[i];
+                this._processMessageHelper(message, entity, method)  // blast to each of array
+            }
+        } else {
+            this._processMessageHelper(message, toEntity, method)   // single message
+        }
+    }
+
+    // helper function for sending Messages
+    _processMessageHelper(message: any, entity: Entity, method: string) {
+        console.log('processMessage', message, entity)
+        if (entity.id == this.id) {
+            console.error(`Entity '${entity.name}' is trying to send message ${message} to itself.`)
+            return
+        }
+        // if (!Object.hasOwn(entity, 'onMessage')) {    ?? this doesn't work ??
+        if (!(typeof entity[method] === 'function')) {
+            throw new Error(`sending ${message} to ${entity.name}}, but no ${method} method`)
+        }
+
+        // looks good
+        (entity as any).onMessage(this, message);
+        // console.log(this)
+        // let codeToExecute = `(entity as any).${method}(this, ${message});`
+        // let tmpFunc = new Function(codeToExecute);
+        // tmpFunc();
+
+    }
+
+
 }
+
+
 
 /** *Facility* is a resource that is used by entities for a finite duration.
 * There is a limit on the number of entities that can use the facility at
@@ -197,11 +225,11 @@ export class Sim extends Model {
 * wish to \'use\' the resource (barber); if all barbers are busy, the
 * customers wait until one barber is available.
 */
-export class Facility extends Model {
+export class Facility extends Sim {
     servers: number
     free: number
     serverStatus: Boolean[] = []
-    facilityQueue: PQueue
+    facilityQueue: PriorityQueue<Request>
     maxqlen: number  //-1 is unlimited
     //    queue: PQueue     // already in SIM
     discipline: 'LCFS' | 'PS' | 'FCFS'
@@ -213,10 +241,12 @@ export class Facility extends Model {
     constructor(name: string, discipline: 'LCFS' | 'PS' | 'FCFS' = 'FCFS', servers: number = 1, maxqlen: number = -1) {
         super(name);
 
+        this.entityType = 'Facility'
+
         this.servers = servers
         this.free = servers
         this.maxqlen = maxqlen
-        this.facilityQueue = new PQueue(name + ' queue')
+        this.facilityQueue = new PriorityQueue(`Facility ${this.name} `, (a: Request, b: Request) => a.timestamp < b.timestamp)
         this.discipline = discipline
 
         switch (discipline) {
@@ -237,7 +267,7 @@ export class Facility extends Model {
     }
 
     reset() {
-        this.facilityQueue.reset();
+        this.facilityQueue.clear();   // may have orphan Requests in the main queue
         this.stats.reset();
         this.busyDuration = 0;
     }
@@ -264,13 +294,13 @@ export class Facility extends Model {
         if ((this.maxqlen === 0 && !this.free)
             || (this.maxqlen > 0 && this.facilityQueue.size() >= this.maxqlen)) {
             ro.data = -1;
-            ro.deliverAt = this.time();
-            Model.queue.insert(ro);
+            ro.deliverAt = Model.simTime;
+            Sim.queue.insert(ro);
             return;
         }
 
         ro.duration = duration;
-        const now = this.time();
+        const now = Model.simTime;
 
         this.stats.enter(now);
         this.facilityQueue.q_push(ro, now);
@@ -304,7 +334,7 @@ export class Facility extends Model {
 
             newro.done(() => this.useFCFSCallback(ro));
 
-            Model.queue.insert(newro);
+            Sim.queue.insert(newro);
         }
     }
 
@@ -351,7 +381,7 @@ export class Facility extends Model {
 
         // schedule this new event
         ro.deliverAt = ro.toEntity.time() + duration;
-        Model.queue.insert(ro);
+        Sim.queue.insert(ro);
     }
 
     useLCFSCallback(ro: Request) {
@@ -374,7 +404,7 @@ export class Facility extends Model {
 
             // stats
             this.busyDuration += (this.currentRO.toEntity.time() - this.lastIssued);
-            this.stats.leave(this.currentRO.scheduledAt, this.time());
+            this.stats.leave(this.currentRO.scheduledAt, Model.simTime);
 
             // deliver this request
             this.currentRO.toEntity = this.currentRO.saved_deliver;
@@ -385,7 +415,7 @@ export class Facility extends Model {
 
         // see if there are pending requests
         if (!this.facilityQueue.empty()) {
-            const newRO = this.facilityQueue.q_pop(this.time());
+            const newRO = this.facilityQueue.q_pop(Model.simTime);
 
             this.useLCFS(newRO.remaining, newRO);
         }
@@ -413,7 +443,7 @@ export class Facility extends Model {
 
         // for (let i = 0; i < size; i++) {
 
-        //     const ev = this.queue[i];
+        //     const ev = Model.queue[i];
 
         //     if (ev.ro === ro) {
         //         continue;
@@ -443,10 +473,10 @@ export class Facility extends Model {
         //     ro.toEntity.queue.insert(newev);
         // }
 
-        // this.queue = newQueue;
+        // Model.queue = newQueue;
 
         // // usage statistics
-        // if (this.queue.length === 0) {
+        // if (this.facilityQueue.length === 0) {
         //     this.busyDuration += (current - this.lastIssued);
         // }
     }
@@ -469,19 +499,21 @@ export class Facility extends Model {
 }
 
 
-export class Buffer extends Model {
+export class Buffer extends Sim {
     capacity: number
     available: number
-    putQueue: Queue
-    getQueue: Queue
+    putQueue: PriorityQueue<Request>
+    getQueue: PriorityQueue<Request>
 
     constructor(name: string, capacity: number, initial: number) {
         super(name);
 
+        this.entityType = 'Buffer'
+
         this.capacity = capacity;
         this.available = (typeof initial === 'undefined') ? 0 : initial;
-        this.putQueue = new Queue(name + ' Buffer PutQueue');
-        this.getQueue = new Queue(name + ' Buffer GetQueue');
+        this.putQueue = new PriorityQueue(`${name} putQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
+        this.getQueue = new PriorityQueue(`${name} getQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
     }
 
     current() {
@@ -588,21 +620,23 @@ export class Buffer extends Model {
     }
 }
 
-export class Store extends Model {
+export class Store extends Sim {
     capacity: number
     available: number
     objects: Function[] = [];
-    putQueue: Queue
-    getQueue: Queue
+    putQueue: PriorityQueue<Request>   // waiting to put something in the store
+    getQueue: PriorityQueue<Request>   // waiting to get something from the store
 
     constructor(name: string, capacity: number) {
         super(name + ' Store');
 
+        this.entityType = 'Store'
         this.capacity = capacity;
         this.available = capacity;
         this.objects = [];
-        this.putQueue = new Queue(name + ' Store PutQueue');
-        this.getQueue = new Queue(name + ' Store GetQueue');
+        this.putQueue = new PriorityQueue(`${this.name} Store PutQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
+        this.getQueue = new PriorityQueue(`${this.name} Store GetQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
+
     }
 
     current() {
@@ -773,8 +807,8 @@ export class Event extends Model {
 
     addWaitList(ro: Request) {
         if (this.isFired) {
-            ro.deliverAt = ro.toEntity.time();
-            Model.queue.insert(ro);
+            // ro.deliverAt = ro.toEntity.time();
+            Sim.queue.insert(ro);
             return;
         }
         this.waitList.push(ro);
@@ -786,7 +820,7 @@ export class Event extends Model {
     addQueue(ro: Request) {
         if (this.isFired) {
             ro.deliverAt = ro.toEntity.time();
-            Model.queue.insert(ro);
+            Sim.queue.insert(ro);
             return;
         }
         this.eventQueue.push(ro);
@@ -826,141 +860,153 @@ export class Entity extends Model {
 
     constructor(name: string) {
         super(name);
+
+        // this.entityType = 'Entity'
     }
 
-    // /** dummy start() - every entity must override this method */
-    // start() {
-    //     throw new Error(`Entity class $ {this.name} must define a start() method.`);
+    // time(): number {
+    //     return Model.simTime;
     // }
 
-    /** dummy onMessage() - if entity doesn't provide this method then simulation shouldn't send a message */
-    onMessage(sender: Entity, message: any) {
-        throw new Error(`Entity class $ {this.name} received a message from ${sender.name}, but has no onMessage() method.`);
-    }
+    ////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////
+
+    // these are the seven ways to create a Request:
+
+    //    setTimer()      set a timer
+    //    useFacility()   use a facility
+    //    putBuffer()     put fungible tokens in a buffer
+    //    getBuffer()     get tokens from buffer
+    //    putStore()      store distinct objects in a store
+    //    getStore()      retrieve object from a store
+    //    waitEvent()     wait on an event
+    //    queueEvent()    queue on an event
+    //    sendMessage()
 
 
-    time(): number {
-        return Model.simTime;
-    }
 
+
+    /** set a timer.  eg:   this.setTimer(n).done(callback) */
     setTimer(duration: number): Request {
-        Model.debug(3, `SetTimer(): Creating a new Request '${this.name}'`)
+        this.debug(3, `SetTimer(): Creating a new Request '${this.name}'`)
 
-        const ro = new Request(
-            this,
-            this.time(),
-            this.time() + duration,);
+        let endTime = Model.simTime + duration
+        let ro = new Request(endTime, `SetTimer(${duration})`);
 
-        console.log('before',Model.queue)
-        Model.queue.insert(ro,this.time());
-        console.log('after',Model.queue)
+        console.log('before', Sim.queue)
+        Sim.queue.insert(ro);
+        console.log('after', Sim.queue)
         return ro;
     }
 
+    /** wait on an event.  When the event firest, ALL requests waiting for it will process. */
     waitEvent(event: Event): Request {
-        const ro = new Request(this, this.time(), 0);
-
+        let ro = new Request(Number.MAX_SAFE_INTEGER, `waitEvent`)
+        // add event name?
+        Sim.queue.insert(ro);
         event.addWaitList(ro);
         return ro;
     }
 
+    /** queue on an event.  When the event fires, only the FIRST request waiting for it will process. */
     queueEvent(event: Event): Request {
-        const ro = new Request(this, this.time(), 0);
-
+        let ro = new Request(Number.MAX_SAFE_INTEGER, `queueEvent(${event.name})`);
+        Sim.queue.insert(ro);
         event.addQueue(ro);
         return ro;
     }
 
-    useFacility(facility: Facility, duration: number): Request {
-        const ro = new Request(facility, this.time(), 0);
+    /** use a facility for some duration */
+    useFacility(facility: Facility, discipline: 'FIFO' | 'LIFO' | 'SHARE', duration: number): Request {
+        let ro = new Request(Number.MAX_SAFE_INTEGER, `useFacility(${facility.name}, ${discipline}, ${duration})`);
+        ro.discipline = discipline
         ro.duration = duration
+        Sim.queue.insert(ro);
+        Facility.queue.insert(ro)
         return ro;
     }
 
-    // putBuffer(buffer, amount) {
-    //     argCheck(callbackArguments, 2, 2, Buffer);
 
-    //     const ro = new Request(this, this.time(), 0);
+    /** Attempt to store amount number of the tokens in buffer, returning a Request. Here's
+     * an example of a producer making widgets, who only starts the next when the buffer has space
+     * for the current.
+     *```js
+    *  // Set timer to self (models the time spend in production)
+     * let Producer = {
+    *   start: function () {
+     * this.setTimer(timeToProduce).done(function () {
+     *        // Timer expires => item is ready to be stored in buffer.
+     *        // When the item is successfully stored in buffer, we repeat
+     *        //     the process by recursively calling the same function.
+     * this.putBuffer(buffer, 1).done(this.start);
+     *   });
+     * }
+}
+    * ```
+     */
+    putBuffer(buffer: Buffer, amount: number) {
 
-    //     ro.source = buffer;
-    //     buffer.put(amount, ro);
-    //     return ro;
-    // }
-
-    // getBuffer(buffer, amount) {
-    //     argCheck(callbackArguments, 2, 2, Buffer);
-
-    //     const ro = new Request(this, this.time(), 0);
-
-    //     ro.source = buffer;
-    //     buffer.get(amount, ro);
-    //     return ro;
-    // }
-
-    // putStore(store, obj) {
-    //     argCheck(callbackArguments, 2, 2, Store);
-
-    //     const ro = new Request(this, this.time(), 0);
-
-    //     ro.source = store;
-    //     store.put(obj, ro);
-    //     return ro;
-    // }
-
-    // getStore(store: Store, filter: Function) {
-
-    //     const ro = new Request(this, this.time(), 0);
-
-    //     ro.source = store;
-    //     store.get(filter, ro);
-    //     return ro;
-    // }
-
-    /** Messages are objects that entities can send to each other. The messages
-    * can be any JavaScript type \-- numbers, string, functions, arrays, objects etc.
-    * As an example, consider a ping-pong game played by two players where
-    * they send a string back and forth to each other. Before resending the
-    * string, each player appends his/her name to the string. We will model
-    * the two players as entities and the string as a message.
-    *
-    * ``` {.js }
-    * class Player extends Sim.Entity {
-    *     start() {
-    *         if (this.firstServer) {
-    *             // Send the string to other player with delay = 0.
-    * this.send("INITIAL", 0, this.opponent);
-    *         }
-    *     },
-    *     onMessage(sender, message) {
-    *         // Receive message, add own name and send back
-    *         var newMessage = message + this.name;
-    * this.send(newMessage, HOLDTIME, sender);
-    *     }
-    * };
-    *
-    * var sim = new Sim.Sim();
-    * var jack = sim.addEntity(Player);
-    * var jill = sim.addEntity(Player);
-    *
-    * jack.name = "Jack";
-    * jill.name = "Jill";
-    *
-    * jack.firstServer = true;
-    * jack.opponent = jill;
-    *
-    * sim.simulate(SIMTIME);
-```
-    */
-    send(message: any, delay: number, toEntity: Entity) {
-
-        const ro = new Request(toEntity, this.time(), this.time() + delay);
-
-        // ro.source = this;   // the entity who SENT the message
-        // ro.deliver = this.sendMessage;
-
-        Model.queue.insert(ro,this.time()+delay);
+        const ro = new Request(Model.simTime, `PutBuffer(${amount})`);
+        ro.amount = amount
+        buffer.putQueue.insert(ro);
+        return ro;
     }
 
-}
+    /** Attempt to retrieve amount number of tokens from buffer, returning a Request.  Here's
+     * an example of a consumer waiting for tokens.
+     *```js
+    *  var Consumer = {
+        *      start: function () {
+     *          // Retrieve one token from buffer
+     * this.getBuffer(buffer, 1).done(function () {
+     *              // After an item has been retrieved, wait for some time
+     *              //   to model the consumption time.
+     *              // After the waiting period is over, we repeat by
+     *              //   recursively calling this same function.
+     * this.setTimer(timeToConsume).done(this.start);
+     *          });
+     *      }
+    }
+        * ```
+     */
+    getBuffer(buffer: Buffer, amount: number) {
 
+        const ro = new Request(this, Model.simTime, 0);
+        ro.amount = amount
+        buffer.getQueue.insert(ro)
+        return ro;
+    }
+
+    /** Attempt to store object in store. This returns a Request object. */
+    putStore(store: Store, obj: Object): Request {
+
+        const ro = new Request(this, Model.simTime, 0);
+
+        ro.source = store;
+        store.put(obj, ro);
+        return ro;
+    }
+
+    /** Attempt to retrieve object from buffer. If the filter function is supplied then the
+     * first object (in FIFO order) that matches the filter is retrieved; otherwise the first
+     * object in FIFO order is retrieved. This returns a Request object. */
+    getStore(store: Store, filter: Function) {
+
+        const ro = new Request(this, Model.simTime, 0);
+
+        ro.source = store;
+        store.get(filter, ro);
+        return ro;
+    }
+
+
+    ////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////
+
+
+}
 

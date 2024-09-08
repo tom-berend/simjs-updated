@@ -1,5 +1,5 @@
-import {Model, Entity, Facility} from './sim.js'
-import {PQueue} from './queue.js'
+// import { Model } from './model.js'
+import { Entity, Facility } from './sim.js'
 
 
 /* When an entity makes a request to the simulation -- such as
@@ -7,16 +7,17 @@ import {PQueue} from './queue.js'
  * a Request object. The entity can use this Request object to
  * further modify the original request.
  *
- * The Request object is returned when an entity makes any of the following requests:
+ * The Request object is returned when an entity makes any of the following requests (in Sim.TS):
  *
  * setTimer()      set a timer
- * useFacility()   use a facility
- * putBuffer()     put tokens in a buffer
- * getBuffer()     get tokens from buffer
- * putStore()      store objects in a store
- * getStore()      retrieve object from a store
- * waitEvent()     wait on an event
- * queueEvent()    queue on an event
+ *  useFacility()   use a facility
+ *  putBuffer()     put tokens in a buffer
+ *  getBuffer()     get tokens from buffer
+ *  putStore()      store objects in a store
+ *  getStore()      retrieve object from a store
+ *  waitEvent()     wait on an event
+ *  queueEvent()    queue on an event
+ *
  *
  * The Request object can then be used to modify the request in the following ways:
  *
@@ -28,28 +29,37 @@ import {PQueue} from './queue.js'
  * setData():     Assign some user data for this request, which will be returned back when the simulator notifies
  *                      the entity about the request.
  * cancel():      Cancel the request.
+ *
+ *
+ *
+ * deliver():     Executes all the callbacks and cancels the request
  */
 
 
 
-export class Request extends Model  {
-    timeStamp: number  // this used to be in queueElement,for FIFO, LIFO, Priority
-                       // moved here to simplify heap.  The queue has a comparator,
-                       // for FIFO, use time()
-                       // for LIFO, use 0-time()
-                       // for PRIORITY, use priority    etc
+export class Request {
+    timestamp: number  // this used to be in queueElement,for FIFO, LIFO, Priority
+    // moved here to simplify heap.  The queue has a comparator,
+    // for FIFO, use time()
+    // for LIFO, use 0-time()
+    // for PRIORITY, use priority    etc
 
-    toEntity: Entity | Facility
     data: any   // a freeform datastore in this Request
+    createdBy: Entity | Facility | null = null
+    createdWith: string   // setTimer(), useFacility(), etc   how it was created
     source: Object   // shouldn't be necessary, callback knows
+    createdAt: number
     scheduledAt: number
     deliverAt: number
     callbacks: ((ro: Request) => void)[]
     cancelled: Boolean
-    group: Request[]
+    // group: Request[]    // groups arentn't used
     noRenege = true
 
-    duration = 0    // referenced by useFCFS, never used
+    // stuff used by Facilities
+    duration = 0
+    discipline: 'FIFO' | 'LIFO' | 'SHARE'
+
     order = 0       // referenced by PQueue, never used
     amount = 0      // referenced by buffer, never used
 
@@ -58,41 +68,56 @@ export class Request extends Model  {
 
     lastIssued: number = 0 // referenced by facility
     remaining: number = 0 // referenced by facility
-    saved_deliver: Entity | Facility // referenced by facility
+    saved_deliver: Entity | Facility | null // referenced by facility
+
+    message: any = ''                           // used by messages
+    toEntity: Entity | Entity[] | null = null   // used by messages
+    toMethod: string = ''                       // used by messages
 
 
 
-    constructor(toEntity: Entity | Facility, currentTime: number, deliverAt: number, source: Object = {}) {
-        super ('request')
+    constructor(timestamp: number, createdWith: string) {
 
-        this.toEntity = toEntity;
-        this.scheduledAt = currentTime;
-        this.deliverAt = deliverAt;
+        this.scheduledAt = timestamp;
+        this.deliverAt = timestamp;
         this.callbacks = [];
         this.cancelled = false;
-        this.group = [];
-        this.source = source
-
+        // this.group = [];
+        this.createdWith = createdWith
         this.filter = () => true
         this.obj = () => true
-        this.saved_deliver = toEntity
+        this.saved_deliver = null
 
-        Model.debug(3, `Create Request to ${toEntity.name} at ${currentTime}, deliverAt ${deliverAt}`)
+        console.log(`Create Request by ${createdWith} scheduled for ${this.scheduledAt}`)
 
     }
 
-    /** cancel this Request, unless it is the main Request or noRenege */
-    cancel(): Request | null {
-        // Ask the main request to handle cancellation
-        if (this.group && this.group[0] !== this) {
-            return this.group[0].cancel();
-        }
+
+    /* Note Special case with facilities.
+    * In case of facilities with FIFO queuing discipline, the requesting entities go through two stages:
+    * (1) wait for the facility to become free (this may be zero duration if the facility is already free),
+    * (2) use the facility for specified duration.
+    * The waitUntil(), unlessEvent() and cancel() functions are applicable in the first stage only.
+    * In order words, if an entity has started using the facility, then it cannot be dislodged and these function calls will have no effect.
+    *
+    * In case of facilities with LIFO and Processor Sharing disciplines, the requesting entities
+    * obtain an immediate access to the facility resource. Therefore, waitUntil(), unlessEvent()
+    * and cancel() functions will have no effect for these facilities.
+    * /
+
+    /** cancel this Request, unless it is the main Request or noRenege. for  */
+    cancel(): Request {
+
+        // // Ask the main request to handle cancellation
+        // if (this.group && this.group[0] !== this) {
+        //     return this.group[0].cancel();
+        // }
 
         // --> this is main request
         if (this.noRenege) return this;
 
         // if already cancelled, do nothing
-        if (this.cancelled) return null;
+        if (this.cancelled) return this;    //
 
         // set flag
         this.cancelled = true;
@@ -101,25 +126,25 @@ export class Request extends Model  {
             this.deliverAt = this.toEntity.time();
         }
 
-        if (this.source) {
-            if ((this.source instanceof Buffer)
-                || (this.source instanceof Store)) {
-                this.source.progressPutQueue();
-                this.source.progressGetQueue();
-            }
-        }
+        // if (this.source) {
+        //     if ((this.source instanceof Buffer)
+        //         || (this.source instanceof Store)) {
+        //         this.source.progressPutQueue();
+        //         this.source.progressGetQueue();
+        //     }
+        // }
 
-        if (!this.group) {
-            return null;
-        }
-        for (let i = 1; i < this.group.length; i++) {
+        // if (!this.group) {
+        //     return null;
+        // }
+        // for (let i = 1; i < this.group.length; i++) {
 
-            this.group[i].cancelled = true;
-            if (this.group[i].deliverAt === 0) {
-                this.group[i].deliverAt = this.toEntity.time();
-            }
-        }
-        return null
+        //     this.group[i].cancelled = true;
+        //     if (this.group[i].deliverAt === 0) {
+        //         this.group[i].deliverAt = this.toEntity.time();
+        //     }
+        // }
+        return this
     }
 
     /** Assign functions that must be called when the request is satisfied. */
@@ -136,8 +161,6 @@ export class Request extends Model  {
 
         const ro = this._addRequest(
             this.scheduledAt + delay, callback);
-
-        Model.queue.insert(ro);
         return this;
     }
 
@@ -173,10 +196,11 @@ export class Request extends Model  {
 
 
     deliver() {
-        console.log('%cin deliver()','color:blue',this)
-        if (this.cancelled) return;
-        this.cancel();
-        if (!this.callbacks) return;
+        console.log(`Delivering Request created with ${this.createdWith}`, this)
+
+        if (this.cancelled){
+            return this;
+        }
 
         // may have a group of Requests
         // if (this.group && this.group.length > 0) {
@@ -185,8 +209,9 @@ export class Request extends Model  {
         //         this.group[0].message);   // was .data ??
         // } else {
 
-        this.callbacks.map((callbackfn: (ro: Request) => void) => { callbackfn(this) })
+        this.callbacks.map((callbackfn: Function) => { callbackfn(this) })
 
+        this.cancel();
         // this._doCallback(this.source,
         //     this.message,
         //     this.message);   // was this.data, how different from message?
@@ -217,6 +242,9 @@ export class Request extends Model  {
         return this;
     }
 
+
+    // addRequest seems to be what creates groups.  It creates a new Request that
+    // contains the old request in its group.
     _addRequest(deliverAt: number, callback: (ro: Request) => void, callbackContext: any = {}, callbackArgument: any = '') {
         const ro = new Request(
             this.toEntity,
@@ -264,4 +292,12 @@ export class Request extends Model  {
     //         callbackContext.callbackData = null;
     //     }
     // }
+
+
+
 }
+
+
+
+
+
