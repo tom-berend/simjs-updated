@@ -9,6 +9,7 @@
     "include": [
         "patterns/messages.ts",
         "patterns/traffic.ts",
+        "patterns/events.ts",
         "src/lib/**/*"
     ]
   }

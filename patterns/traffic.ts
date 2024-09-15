@@ -67,6 +67,7 @@ class LightController extends Entity {
 
 
 class Traffic extends Entity {
+    trafficLights:number[]
     constructor(name: string) {
         super(name)
     }
@@ -77,7 +78,7 @@ class Traffic extends Entity {
         this.generateTraffic("East", trafficLights[1]); // traffic for East -> West
         this.generateTraffic("West", trafficLights[1]); // traffic for West -> East
     }
-    generateTraffic(direction, light) {
+    generateTraffic(direction:string, light:number) {
         // STATS: record that vehicle as entered the intersection
         stats.enter(sim.time());
         sim.log("Arrive for " + direction);

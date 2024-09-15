@@ -3,11 +3,11 @@ import { Request } from "./request.js"
 
 export class Model {
 
+
     static simTime = 0   // static, only one since everyone inherits from this class
 
     static endTime: number
     static entityId: number
-    static entityType: 'Entity' | 'Buffer' | 'Store' | 'Facility' | 'Message'
 
 
     // this is the function that logs, override it with setLogger()
@@ -15,7 +15,8 @@ export class Model {
 
     id: Symbol          // for classes that descends from Model, every instance is unique
     name: string
-
+    entityType: 'Entity' | 'Buffer' | 'Store' | 'Facility'   // for logging
+    static currentSim: Object | null  // nice if we can access this from entities,but must avoid circular
 
     static queue: PriorityQueue<Request>   // every request is in this queue, might also be in other queues
         = new PriorityQueue('Sim Queue', (a: Request, b: Request) => a.timestamp < b.timestamp)
@@ -42,8 +43,9 @@ export class Model {
 
     log(message: any, colour: string = 'white', backgroundColor: string = 'black') {   // all entities, facilities, etc  are descended from sim
         if (!Model.logger) return
+        if (!(colour == 'white' && backgroundColor == 'black)')) backgroundColor = 'lightgrey'  // if entity sets color, then default to white background
         let entityMsg = '';
-        let colorScheme = "color:"+colour+";background-color:"+backgroundColor+";"
+        let colorScheme = "color:" + colour + ";background-color:" + backgroundColor + ";"
         console.log(`%c ${this.name}: ${Model.simTime.toFixed(2)}  ${message}`, colorScheme);
     }
 

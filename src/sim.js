@@ -13,6 +13,7 @@ export class Sim extends Model {
     messages = 0;
     constructor(name = 'Sim', isRealTime = false) {
         super(name);
+        Model.currentSim = this; // register SIM object to parent so can access from entities.
         this.isRealTime = isRealTime;
         // set the real-time clock ticking
         setInterval(() => this.realTimeClock += .1, 100); // not very accurate
@@ -21,6 +22,7 @@ export class Sim extends Model {
     /** run the simulation for a specific # of seconds or to max events */
     async simulate(endTime = 1000000, maxEvents = 1000000) {
         // fire all the start functions
+        console.log('startlist entities', this.startList);
         this.startList.map((entity) => entity['start']());
         console.log('in simulate, sim queue size', Model.queue.size());
         try {
@@ -47,11 +49,13 @@ export class Sim extends Model {
                 }
                 console.log('%c about to deliver', 'color:pink;', ro);
                 this.events += 1;
-                console.log('%c switch', 'color:green;', ro);
+                console.log(`%c switch on ${ro.createdWith}`, 'color:green;', ro);
                 switch (ro.createdWith) {
                     case 'setTimer': //   set a timer
-                        ro.deliver();
-                        continue;
+                        if (!ro.cancelled) {
+                            ro.callbacks.map((callbackfn) => { callbackfn(this); });
+                        }
+                        break;
                     case 'useFacility': //   use a facility
                     case 'putBuffer': //   put fungible tokens in a buffer
                     case 'getBuffer': //   get tokens from buffer
@@ -62,9 +66,9 @@ export class Sim extends Model {
                         break;
                     case 'sendMessage': //   send a message entity-to-entity
                         ro.callbacks[0](ro); //   always only one callback
-                        ro.cancel();
+                        // ro.cancel()
                         this.messages += 1;
-                        continue;
+                        break;
                     default:
                         throw new Error(`unknown Request, created with command ${ro.createdWith}`);
                 }
@@ -74,6 +78,12 @@ export class Sim extends Model {
         }
         catch (error) {
             console.error(error);
+        }
+    }
+    /** useful for debugging simulations, also helps document them. */
+    assertTrue(condition, message) {
+        if (!condition) {
+            this.log(message, 'red', 'white');
         }
     }
     time() {
@@ -176,7 +186,7 @@ export class Facility extends Sim {
         return this.stats;
     }
     queueStats() {
-        return this.facilityQueue.stats;
+        return this.facilityQueue.report();
     }
     usage() {
         return this.busyDuration;
@@ -184,7 +194,7 @@ export class Facility extends Sim {
     /** propagate finalize to  */
     finalize() {
         this.stats.finalize();
-        this.facilityQueue.stats.finalize();
+        this.facilityQueue.finalize();
     }
     useFCFS(duration, ro) {
         if ((this.maxqlen === 0 && !this.free)
@@ -197,12 +207,12 @@ export class Facility extends Sim {
         ro.duration = duration;
         const now = Model.simTime;
         this.stats.enter(now);
-        this.facilityQueue.q_push(ro, now);
+        this.facilityQueue.insert(ro);
         this.useFCFSSchedule(now);
     }
     useFCFSSchedule(timestamp) {
         while (this.free > 0 && !this.facilityQueue.empty()) {
-            const ro = this.facilityQueue.q_shift(timestamp);
+            const ro = this.facilityQueue.remove();
             if (ro.cancelled) {
                 continue;
             }
@@ -217,7 +227,7 @@ export class Facility extends Sim {
             this.busyDuration += ro.duration;
             // cancel all other reneging requests
             ro.cancelRenegeClauses();
-            const newro = new Request(this, timestamp, timestamp + ro.duration);
+            const newro = new Request(timestamp + ro.duration, this.entityType);
             newro.done(() => this.useFCFSCallback(ro));
             Sim.queue.insert(newro);
         }
@@ -585,50 +595,41 @@ export class Store extends Sim {
     }
 }
 export class Event extends Model {
-    waitList = [];
-    eventQueue = [];
+    waitList = []; // NOT a priority queue
+    waitQueue = []; // these are COPIES of ro's in main queue
     isFired = false;
     constructor(name) {
         super(name);
     }
-    addWaitList(ro) {
-        if (this.isFired) {
-            // ro.deliverAt = ro.toEntity.time();
-            Sim.queue.insert(ro);
-            return;
-        }
-        this.waitList.push(ro);
-    }
-    /** add a request to the queue of this event.  If this event is 'fired'
-     * then also queue it to the entity in the request.
-     */
-    addQueue(ro) {
-        if (this.isFired) {
-            ro.deliverAt = ro.toEntity.time();
-            Sim.queue.insert(ro);
-            return;
-        }
-        this.eventQueue.push(ro);
-    }
+    // TODO: for future,
+    // what should happen if requests in both waitList and waitQueue.
+    //    i'm thinking that an Event should be one or the other
+    // do we need a way to cancel everything in the queues?  clear + cancel
     /** Fire the event */
-    fire(keepFired) {
-        if (keepFired) {
-            this.isFired = true;
-        }
-        // Dispatch all waiting entities
-        const tmpList = this.waitList;
+    fire(keepFired = false) {
+        this.isFired = keepFired; // can reset with fire(false)
+        // Dispatch all waiting entities by setting their timestamp to NOW
+        this.waitList.map((ro) => ro.timestamp = Model.simTime);
         this.waitList = [];
-        for (let i = 0; i < tmpList.length; i++) {
-            tmpList[i].deliver();
+        // queued elements are more complex
+        if (this.isFired) { // probably never happens
+            this.waitQueue.map((ro) => ro.timestamp = Model.simTime); // all
+            this.waitQueue = [];
         }
-        // Dispatch one queued entity
-        const lucky = this.eventQueue.shift();
-        if (lucky) {
-            lucky.deliver();
+        else { // just release one element
+            // two steps.  first we dispose of any cancelled events
+            // just deleting our copy, the main queue still hold them
+            this.waitQueue = this.waitQueue.filter((ro) => !ro.cancelled);
+            // now try to unqueue something
+            if (this.waitQueue.length > 0) {
+                this.waitQueue[0].timestamp = Model.simTime; // set to now
+                this.waitQueue.shift(); // and remove our copy
+            }
         }
     }
-    // TODO:  is fired:Boolean sufficient to describe the state of an event?
-    /** If this event was fired with 'keepFired', then clear it. */
+    /** If this event was fired with 'keepFired', then clear it.  Queues will
+     * be empty if entity called fire(true).
+    */
     clear() {
         this.isFired = false;
     }
@@ -637,6 +638,8 @@ export class Event extends Model {
 export class Entity extends Model {
     constructor(name) {
         super(name);
+        console.log(Model.currentSim);
+        Model.currentSim.addEntity(this); // ugly way to self-register without circular reference
         // this.entityType = 'Entity'
     }
     // time(): number {
@@ -660,7 +663,7 @@ export class Entity extends Model {
     setTimer(duration) {
         this.debug(3, `SetTimer(): Creating a new Request '${this.name}'`);
         let endTime = Model.simTime + duration;
-        let ro = new Request(endTime, `SetTimer(${duration})`);
+        let ro = new Request(endTime, `setTimer`);
         console.log('before', Sim.queue);
         Sim.queue.insert(ro);
         console.log('after', Sim.queue);
@@ -669,16 +672,22 @@ export class Entity extends Model {
     /** wait on an event.  When the event firest, ALL requests waiting for it will process. */
     waitEvent(event) {
         let ro = new Request(Number.MAX_SAFE_INTEGER, `waitEvent`);
-        // add event name?
-        Sim.queue.insert(ro);
-        event.addWaitList(ro);
+        Sim.queue.insert(ro); // in the main queue
+        if (event.isFired)
+            ro.timestamp = Model.simTime; // fires right away, no need to queue
+        else
+            event.waitList.push(ro); // a copy in the waitlist queue
         return ro;
     }
     /** queue on an event.  When the event fires, only the FIRST request waiting for it will process. */
     queueEvent(event) {
-        let ro = new Request(Number.MAX_SAFE_INTEGER, `queueEvent(${event.name})`);
-        Sim.queue.insert(ro);
-        event.addQueue(ro);
+        let timestamp = event.isFired ? Model.simTime : Number.MAX_SAFE_INTEGER; // now or later
+        let ro = new Request(Number.MAX_SAFE_INTEGER, `queueEvent`);
+        Sim.queue.insert(ro); // in the main queue
+        if (event.isFired)
+            ro.timestamp = Model.simTime; // fires right away, no need to queue
+        else
+            event.waitQueue.push(ro); // a copy in the waitlist queue
         return ro;
     }
     /** use a facility for some duration */

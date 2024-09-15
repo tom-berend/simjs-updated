@@ -47,6 +47,7 @@ class LightController extends Entity {
 }
 ;
 class Traffic extends Entity {
+    trafficLights;
     constructor(name) {
         super(name);
     }
