@@ -56,4 +56,4 @@ let jill = new Player('Jill');
 jack.opponent = jill;
 // but jill doesn't know that jack is her opponent
 SIM.simulate(1000, 10);
-//# sourceMappingURL=messages.js.map
+//# sourceMappingURL=pingpong.js.map

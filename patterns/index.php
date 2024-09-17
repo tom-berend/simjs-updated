@@ -3,7 +3,20 @@
 $HTML = '';
 
 $demos = [
-    ['messages', 'Start here.  Simple messages between two entities playing ping-pong.'],
+    // filename   demonstrates
+    ['pingpong', 'sendMessage()', 'Messages between two entities playing ping-pong.  <b>Start Here</b>'],
+    ['traffic', 'waitEvent()', 'Events at a traffic intersection. '],
+
+    ['queuetest', 'Queue()', 'Tests the queue. '],
+
+    // case 'useFacility':        //   use a facility
+    // case 'putBuffer':          //   put fungible tokens in a buffer
+    // case 'getBuffer':          //   get tokens from buffer
+    // case 'putStore':           //   store distinct objects in a store
+    // case 'getStore':           //   retrieve object from a store
+    // case 'queueEvent':         //   queue on an event
+
+
 ];
 
 
@@ -30,11 +43,15 @@ $HTML .= PHP_EOL . '</head>';
 
 $HTML .= PHP_EOL . '<body>';
 
+$HTML .= "<table>";
 foreach ($demos as $demo) {
-    $HTML .= "<table>";
-    $HTML .= "<tr><td><a href='./?{$demo[0]}'><button type='button'>messages</button></a></td><td>{$demo[1]}</td></tr>";
-    $HTML .= "</table>";
+    $HTML .= "<tr>
+        <td><a href='./?{$demo[0]}'><button type='button'>{$demo[0]}</button></a></td>
+        <td><b>{$demo[1]}</b></td>
+        <td>{$demo[2]}</td>
+    </tr>";
 }
+$HTML .= "</table>";
 
 $HTML .= PHP_EOL . '<div id="jsxbox" class="jsxbox" style="width:1000px; height:1000px;background-color:straw;">';
 

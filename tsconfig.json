@@ -7,9 +7,7 @@
       "lib": ["ESNext", "DOM"],
     },
     "include": [
-        "patterns/messages.ts",
-        "patterns/traffic.ts",
-        "patterns/events.ts",
+        "patterns/**/*",
         "src/lib/**/*"
     ]
   }

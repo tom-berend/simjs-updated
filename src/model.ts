@@ -1,4 +1,4 @@
-import { PriorityQueue } from "./queue.js"
+import { TinyQueue } from "./queue.js"
 import { Request } from "./request.js"
 
 export class Model {
@@ -18,8 +18,8 @@ export class Model {
     entityType: 'Entity' | 'Buffer' | 'Store' | 'Facility'   // for logging
     static currentSim: Object | null  // nice if we can access this from entities,but must avoid circular
 
-    static queue: PriorityQueue<Request>   // every request is in this queue, might also be in other queues
-        = new PriorityQueue('Sim Queue', (a: Request, b: Request) => a.timestamp < b.timestamp)
+    static queue: TinyQueue   // every request is in this queue, might also be in other queues
+        = new TinyQueue('Sim Queue', (a: Request, b: Request) => a.timestamp < b.timestamp)
 
 
     // each entity can set its own rules for debugging

@@ -200,7 +200,7 @@ export class Facility extends Sim {
     servers: number
     free: number
     serverStatus: Boolean[] = []
-    facilityQueue: PriorityQueue<Request>
+    facilityQueue: Request[] = []
     maxqlen: number  //-1 is unlimited
     //    queue: PQueue     // already in SIM
     discipline: 'LCFS' | 'PS' | 'FCFS'
@@ -217,7 +217,6 @@ export class Facility extends Sim {
         this.servers = servers
         this.free = servers
         this.maxqlen = maxqlen
-        this.facilityQueue = new PriorityQueue(`Facility ${this.name} `, (a: Request, b: Request) => a.timestamp < b.timestamp)
         this.discipline = discipline
 
         switch (discipline) {
@@ -473,8 +472,8 @@ export class Facility extends Sim {
 export class Buffer extends Sim {
     capacity: number
     available: number
-    putQueue: PriorityQueue<Request>
-    getQueue: PriorityQueue<Request>
+    putQueue: Request[] = []
+    getQueue: Request[] = []
 
     constructor(name: string, capacity: number, initial: number) {
         super(name);
@@ -483,8 +482,6 @@ export class Buffer extends Sim {
 
         this.capacity = capacity;
         this.available = (typeof initial === 'undefined') ? 0 : initial;
-        this.putQueue = new PriorityQueue(`${name} putQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
-        this.getQueue = new PriorityQueue(`${name} getQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
     }
 
     current() {
@@ -595,8 +592,8 @@ export class Store extends Sim {
     capacity: number
     available: number
     objects: Function[] = [];
-    putQueue: PriorityQueue<Request>   // waiting to put something in the store
-    getQueue: PriorityQueue<Request>   // waiting to get something from the store
+    putQueue: Request[] = []  // waiting to put something in the store
+    getQueue: Request[] = [] // waiting to get something from the store
 
     constructor(name: string, capacity: number) {
         super(name + ' Store');
@@ -605,9 +602,6 @@ export class Store extends Sim {
         this.capacity = capacity;
         this.available = capacity;
         this.objects = [];
-        this.putQueue = new PriorityQueue(`${this.name} Store PutQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
-        this.getQueue = new PriorityQueue(`${this.name} Store GetQueue`, (a: Request, b: Request) => a.timestamp < b.timestamp)
-
     }
 
     current() {

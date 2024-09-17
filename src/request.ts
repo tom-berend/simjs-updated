@@ -74,6 +74,8 @@ export class Request {
 
     constructor(timestamp: number, createdWith: string) {
 
+        this.timestamp = timestamp  // primary key for queue
+
         this.scheduledAt = timestamp;
         this.deliverAt = timestamp;
         this.callbacks = [];

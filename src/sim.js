@@ -1,7 +1,6 @@
 //TODO:  check out https://github.com/ed-sim/ed-sim-js
 import { Model } from './model.js';
 import { Population } from './stats.js';
-import { PriorityQueue } from './queue.js';
 import { Request } from './request.js';
 // the system has Entities, Events, Stores, Buffers, Facilities that extend Model
 /** root simulation class.  let sim = new Sim(name, isRealTime) */
@@ -147,7 +146,7 @@ export class Facility extends Sim {
     servers;
     free;
     serverStatus = [];
-    facilityQueue;
+    facilityQueue = [];
     maxqlen; //-1 is unlimited
     //    queue: PQueue     // already in SIM
     discipline;
@@ -161,7 +160,6 @@ export class Facility extends Sim {
         this.servers = servers;
         this.free = servers;
         this.maxqlen = maxqlen;
-        this.facilityQueue = new PriorityQueue(`Facility ${this.name} `, (a, b) => a.timestamp < b.timestamp);
         this.discipline = discipline;
         switch (discipline) {
             case 'LCFS':
@@ -359,15 +357,13 @@ export class Facility extends Sim {
 export class Buffer extends Sim {
     capacity;
     available;
-    putQueue;
-    getQueue;
+    putQueue = [];
+    getQueue = [];
     constructor(name, capacity, initial) {
         super(name);
         this.entityType = 'Buffer';
         this.capacity = capacity;
         this.available = (typeof initial === 'undefined') ? 0 : initial;
-        this.putQueue = new PriorityQueue(`${name} putQueue`, (a, b) => a.timestamp < b.timestamp);
-        this.getQueue = new PriorityQueue(`${name} getQueue`, (a, b) => a.timestamp < b.timestamp);
     }
     current() {
         return this.available;
@@ -456,16 +452,14 @@ export class Store extends Sim {
     capacity;
     available;
     objects = [];
-    putQueue; // waiting to put something in the store
-    getQueue; // waiting to get something from the store
+    putQueue = []; // waiting to put something in the store
+    getQueue = []; // waiting to get something from the store
     constructor(name, capacity) {
         super(name + ' Store');
         this.entityType = 'Store';
         this.capacity = capacity;
         this.available = capacity;
         this.objects = [];
-        this.putQueue = new PriorityQueue(`${this.name} Store PutQueue`, (a, b) => a.timestamp < b.timestamp);
-        this.getQueue = new PriorityQueue(`${this.name} Store GetQueue`, (a, b) => a.timestamp < b.timestamp);
     }
     current() {
         return this.objects.length;
