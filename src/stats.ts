@@ -2,6 +2,8 @@
 export class DataSeries {
     name = ''
 
+    allData: [number, number][] = []    // array of [value,weight]
+
     Count = 0;
     W = 0.0;
     A = 0.0;
@@ -128,11 +130,13 @@ export class DataSeries {
 }
 
 export class TimeSeries {
-    dataSeries:DataSeries
+    dataSeries: DataSeries
     lastValue = NaN;
     lastTimestamp = NaN;
 
-    constructor(name:string) {
+    allData: [number, number][] = []     // array of [timestamp,value]
+
+    constructor(name: string) {
         this.dataSeries = new DataSeries(name);
     }
 
@@ -142,7 +146,7 @@ export class TimeSeries {
         this.lastTimestamp = NaN;
     }
 
-    setHistogram(lower:number, upper:number, nbuckets:number) {
+    setHistogram(lower: number, upper: number, nbuckets: number) {
         this.dataSeries.setHistogram(lower, upper, nbuckets);
     }
 
@@ -150,7 +154,9 @@ export class TimeSeries {
         return this.dataSeries.getHistogram();
     }
 
-    record(value:number, timestamp:number) {
+    record(value: number, timestamp: number) {
+        this.allData.push([timestamp,value])
+        console.log('Timeseries.alldata', this.allData)
 
         if (!isNaN(this.lastTimestamp)) {
             this.dataSeries.record(this.lastValue, timestamp - this.lastTimestamp);
@@ -161,7 +167,7 @@ export class TimeSeries {
     }
 
     finalize() {
-        this.record(NaN,NaN);
+        this.record(NaN, NaN);
     }
 
     count() {
@@ -198,12 +204,12 @@ export class TimeSeries {
 }
 
 export class Population {
-    name:string
+    name: string
     population = 0;
     sizeSeries: TimeSeries
-    durationSeries:DataSeries
+    durationSeries: DataSeries
 
-    constructor(name:string) {
+    constructor(name: string) {
         this.name = name;
         this.population = 0;
         this.sizeSeries = new TimeSeries(name);
@@ -216,12 +222,12 @@ export class Population {
         this.population = 0;
     }
 
-    enter(timestamp:number) {
+    enter(timestamp: number) {
         this.population++;
         this.sizeSeries.record(this.population, timestamp);
     }
 
-    leave(arrivalAt:number, leftAt:number) {
+    leave(arrivalAt: number, leftAt: number) {
 
         this.population--;
         this.sizeSeries.record(this.population, leftAt);

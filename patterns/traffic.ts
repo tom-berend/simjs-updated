@@ -1,8 +1,6 @@
 import { Sim, Entity, Facility, Event } from '../src/sim.js'
-import { Population } from '../src/stats.js'
+import { Population, TimeSeries } from '../src/stats.js'
 import { TXG } from '../lib/tsxgraph.js'
-
-
 
 
 // What is average duration that vehicles have to wait at the intersection?
@@ -25,14 +23,14 @@ let SIMTIME = 1000
 
 
 let SIM = new Sim();
-let TSX = TXG.TSXGraph.initBoard('jsxbox', { axis: true })
+let TSX = TXG.TSXGraph.initBoard('jsxbox', { boundingbox:[-20,50,1050,-10],axis: true })
 
 
 // create a class to hold state info for Events and Facilities.
 class State {
     static trafficLights: Event[]
+    static carsWaiting: TimeSeries[]
 }
-
 
 
 // an entity to control the traffic lights, periodically turns off lights in one
@@ -40,17 +38,13 @@ class State {
 class LightController extends Entity {
     currentLight = 0  // the light that is turned on currently
 
-    constructor(name: string) {
-        super(name)
-    }
-
     start() {
-        this.log(State.trafficLights[this.currentLight].name + " OFF"
-            + ", " + State.trafficLights[1 - this.currentLight].name + " ON");
+        this.log(State.trafficLights[this.currentLight].name + " OFF (Red)"
+            + ", " + State.trafficLights[1 - this.currentLight].name + " ON (Green)",'green');
 
         // turn off the current light
-        State.trafficLights[this.currentLight].clear();
 
+        State.trafficLights[this.currentLight].clear();
         // turn on the other light.
         // Note the true parameter: the event must "sustain"
         State.trafficLights[1 - this.currentLight].fire(true);
@@ -66,24 +60,25 @@ class LightController extends Entity {
 
 
 class Traffic extends Entity {
-    constructor(name: string) {
-        super(name)
-    }
 
     start() {
         // start four generators
+        this.log('starting to generate traffic','blue')
         this.generateTraffic("North", State.trafficLights[0]); // traffic for North -> South
-        this.generateTraffic("South", State.trafficLights[0]); // traffic for South -> North
+        // this.generateTraffic("South", State.trafficLights[0]); // traffic for South -> North
         this.generateTraffic("East",  State.trafficLights[1]); // traffic for East -> West
-        this.generateTraffic("West",  State.trafficLights[1]); // traffic for West -> East
+        // this.generateTraffic("West",  State.trafficLights[1]); // traffic for West -> East
     }
+
+    /** create a car NOW and wait for the light (might be green) */
     generateTraffic(direction: string, light: Event) {
-        // STATS: record that vehicle as entered the intersection
-        // stats.enter(sim.time());
-        this.log("Arrive for " + direction);
+        this.log(`generateTraffic ${direction}`,'blue')
+        light.waitEvent()   // just incrementing a counter (if Red)
+
+        this.log("Arrive for " + direction,'blue');
 
         // wait on the light.
-        // The done() function will be called when the event fires
+                // The done() function will be called when the event fires
         // (i.e. the light turns green).
 
         // this.waitEvent(light).done(() => {
@@ -95,7 +90,7 @@ class Traffic extends Entity {
 
         // Repeat for the next car. Call this function again.
         let nextArrivalAt = TSX.StatisticsMath.randomExponential(1.0 / MEAN_ARRIVAL);
-        let ro = this.setTimer(nextArrivalAt).done(() => this.generateTraffic(direction, light));
+        this.setTimer(nextArrivalAt).done(() => this.generateTraffic(direction, light));
     }
 };
 
@@ -111,6 +106,7 @@ State.trafficLights = [
 let lights = new LightController('LightController')
 let traffic = new Traffic('traffic')
 
+
 // create a Population object to monitor the statistics
 let stats = new Population("Waiting at Intersection");
 
@@ -122,7 +118,13 @@ let stats = new Population("Waiting at Intersection");
 //    });
 
 // simulate for SIMTIME time
-SIM.simulate(SIMTIME);
+SIM.simulate(SIMTIME)
+
+let timeSeries = State.trafficLights[0].timeSeries.allData
+timeSeries.map((dot)=>TSX.point(dot,{strokeColor:'red'}))
+
+timeSeries = State.trafficLights[1].timeSeries.allData
+timeSeries.map((dot)=>TSX.point(dot,{strokeColor:'green'}))
 
 console.log(stats.durationSeries.average(),
     stats.durationSeries.deviation(),

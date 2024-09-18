@@ -1,6 +1,6 @@
 //TODO:  check out https://github.com/ed-sim/ed-sim-js
 import { Model } from './model.js';
-import { Population } from './stats.js';
+import { TimeSeries, Population } from './stats.js';
 import { Request } from './request.js';
 // the system has Entities, Events, Stores, Buffers, Facilities that extend Model
 /** root simulation class.  let sim = new Sim(name, isRealTime) */
@@ -19,14 +19,14 @@ export class Sim extends Model {
     }
     debug(level, message) { }
     /** run the simulation for a specific # of seconds or to max events */
-    async simulate(endTime = 1000000, maxEvents = 1000000) {
+    simulate(endTime = 1000000, maxEvents = 1000000) {
         // fire all the start functions
         console.log('startlist entities', this.startList);
         this.startList.map((entity) => entity['start']());
         console.log('in simulate, sim queue size', Model.queue.size());
         try {
             // Get the earliest event
-            while (!Model.queue.empty()) {
+            while (Model.queue.size() > 0) {
                 if (this.events > maxEvents) {
                     console.log(`Simulation exceeded ${maxEvents} steps, terminated.`);
                     break;
@@ -79,17 +79,10 @@ export class Sim extends Model {
             console.error(error);
         }
     }
-    /** useful for debugging simulations, also helps document them. */
-    assertTrue(condition, message) {
-        if (!condition) {
-            this.log(message, 'red', 'white');
-        }
-    }
     time() {
         return Model.simTime;
     }
     addEntity(entity) {
-        this.debug(3, `addEntity(Entity ${entity.name})`);
         // create a list of 'start()' calls to kick off the simulation
         // if (!Object.hasOwn(entity, 'start')) {      // ?? this doesn't work ??
         if (!(typeof entity['start'] === 'function')) {
@@ -354,16 +347,16 @@ export class Facility extends Sim {
         }
     }
 }
-export class Buffer extends Sim {
+export class BufferPool extends Sim {
     capacity;
     available;
     putQueue = [];
     getQueue = [];
-    constructor(name, capacity, initial) {
+    constructor(name, capacity, initial = undefined) {
         super(name);
         this.entityType = 'Buffer';
         this.capacity = capacity;
-        this.available = (typeof initial === 'undefined') ? 0 : initial;
+        this.available = (typeof initial === 'undefined') ? this.capacity : initial;
     }
     current() {
         return this.available;
@@ -371,7 +364,7 @@ export class Buffer extends Sim {
     size() {
         return this.capacity;
     }
-    get(amount, ro) {
+    get(amount) {
         if (this.getQueue.empty()
             && amount <= this.available) {
             this.available -= amount;
@@ -381,7 +374,7 @@ export class Buffer extends Sim {
             this.progressPutQueue();
             return;
         }
-        ro.amount = amount;
+        ro.bufferRequest = amount;
         this.getQueue.q_push(ro, ro.toEntity.time());
     }
     put(amount, ro) {
@@ -394,7 +387,7 @@ export class Buffer extends Sim {
             this.progressGetQueue();
             return;
         }
-        ro.amount = amount;
+        ro.bufferRequest = amount;
         this.putQueue.q_push(ro, ro.toEntity.time());
     }
     progressGetQueue() {
@@ -589,11 +582,37 @@ export class Store extends Sim {
     }
 }
 export class Event extends Model {
-    waitList = []; // NOT a priority queue
+    waitList = 0; // NOT a priority queue
     waitQueue = []; // these are COPIES of ro's in main queue
     isFired = false;
+    timeSeries;
+    isQueue = false; // we figure out internallw whether we are counting or queueing - not BOTH
     constructor(name) {
         super(name);
+        this.timeSeries = new TimeSeries(name);
+    }
+    /** mark as waiting for Event - just a counter but also keeps statistics */
+    waitEvent() {
+        this.assertTrue(this.isQueue == false, `${this.name} seems to have both waitList and waitQueue. Should have one OR the other.`);
+        if (this.isFired) {
+            this.timeSeries.record(0, Model.simTime); // 0 to make it obvious
+        }
+        else {
+            this.waitList += 1;
+            this.timeSeries.record(this.waitList, Model.simTime);
+        }
+    }
+    /** keep waiting callback requests in the queue */
+    queueEvent(callback) {
+        this.isQueue = true;
+        this.assertTrue(this.waitList == 0, `${this.name} seems to have both waitList and waitQueue. Should have one OR the other.`);
+        if (this.isFired) {
+            this.timeSeries.record(0, Model.simTime); // 0 to make it obvious
+        }
+        else {
+            this.waitQueue.push(callback);
+            this.timeSeries.record(this.waitQueue.length, Model.simTime);
+        }
     }
     // TODO: for future,
     // what should happen if requests in both waitList and waitQueue.
@@ -601,24 +620,15 @@ export class Event extends Model {
     // do we need a way to cancel everything in the queues?  clear + cancel
     /** Fire the event */
     fire(keepFired = false) {
+        this.timeSeries.record(Math.max(this.waitList, this.waitQueue.length), Model.simTime); // one should be always zero
         this.isFired = keepFired; // can reset with fire(false)
         // Dispatch all waiting entities by setting their timestamp to NOW
-        this.waitList.map((ro) => ro.timestamp = Model.simTime);
-        this.waitList = [];
-        // queued elements are more complex
-        if (this.isFired) { // probably never happens
-            this.waitQueue.map((ro) => ro.timestamp = Model.simTime); // all
+        if (this.isQueue) {
+            this.waitQueue.map((callback) => callback());
             this.waitQueue = [];
         }
-        else { // just release one element
-            // two steps.  first we dispose of any cancelled events
-            // just deleting our copy, the main queue still hold them
-            this.waitQueue = this.waitQueue.filter((ro) => !ro.cancelled);
-            // now try to unqueue something
-            if (this.waitQueue.length > 0) {
-                this.waitQueue[0].timestamp = Model.simTime; // set to now
-                this.waitQueue.shift(); // and remove our copy
-            }
+        else {
+            this.waitList = 0;
         }
     }
     /** If this event was fired with 'keepFired', then clear it.  Queues will
@@ -626,6 +636,10 @@ export class Event extends Model {
     */
     clear() {
         this.isFired = false;
+        this.isQueue = false;
+        this.waitList = 0;
+        this.waitQueue = [];
+        this.timeSeries.record(0, Model.simTime); // 0 to make it obvious
     }
 }
 /** Entities are the actors in the simulation. */
@@ -633,6 +647,7 @@ export class Entity extends Model {
     constructor(name) {
         super(name);
         console.log(Model.currentSim);
+        // entity extends Model, doesn't know about SIM.  But SIM extends Model too.
         Model.currentSim.addEntity(this); // ugly way to self-register without circular reference
         // this.entityType = 'Entity'
     }
@@ -712,7 +727,7 @@ export class Entity extends Model {
      */
     putBuffer(buffer, amount) {
         const ro = new Request(Model.simTime, `PutBuffer(${amount})`);
-        ro.amount = amount;
+        ro.bufferRequest = amount;
         buffer.putQueue.insert(ro);
         return ro;
     }
@@ -733,10 +748,9 @@ export class Entity extends Model {
     }
         * ```
      */
-    getBuffer(buffer, amount) {
-        const ro = new Request(this, Model.simTime, 0);
-        ro.amount = amount;
-        buffer.getQueue.insert(ro);
+    getBuffer(buffer, bufferRequest) {
+        const ro = new Request(Model.simTime, 'getBuffer');
+        ro.bufferRequest = bufferRequest;
         return ro;
     }
     /** Attempt to store object in store. This returns a Request object. */

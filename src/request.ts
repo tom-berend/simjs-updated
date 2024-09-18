@@ -61,7 +61,7 @@ export class Request {
     discipline: 'FIFO' | 'LIFO' | 'SHARE'
 
     order = 0       // referenced by PQueue, never used
-    amount = 0      // referenced by buffer, never used
+    bufferRequest = 0      // referenced by buffer
 
     filter: Function  // referenced by store, never used
     obj: Function     // referenced by store

@@ -1,5 +1,6 @@
 export class DataSeries {
     name = '';
+    allData = []; // array of [value,weight]
     Count = 0;
     W = 0.0;
     A = 0.0;
@@ -106,6 +107,7 @@ export class TimeSeries {
     dataSeries;
     lastValue = NaN;
     lastTimestamp = NaN;
+    allData = []; // array of [timestamp,value]
     constructor(name) {
         this.dataSeries = new DataSeries(name);
     }
@@ -121,6 +123,8 @@ export class TimeSeries {
         return this.dataSeries.getHistogram();
     }
     record(value, timestamp) {
+        this.allData.push([timestamp, value]);
+        console.log('Timeseries.alldata', this.allData);
         if (!isNaN(this.lastTimestamp)) {
             this.dataSeries.record(this.lastValue, timestamp - this.lastTimestamp);
         }

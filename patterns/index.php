@@ -61,4 +61,3 @@ $HTML .= PHP_EOL . '</body>';
 $HTML .= PHP_EOL . '</html>';
 
 echo $HTML;
-echo $_SERVER['QUERY_STRING'];

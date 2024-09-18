@@ -1,25 +1,27 @@
-import { TinyQueue } from "./queue.js"
+import { Queue } from "./queue.js"
 import { Request } from "./request.js"
 
 export class Model {
 
 
     static simTime = 0   // static, only one since everyone inherits from this class
-
     static endTime: number
-    static entityId: number
 
+    static currentSim: Object | null   // allows us to access SIM from entities, but avoid circular ref
+    static allEntities: Object[] = []  // allows entities to see each other if necessary
+    // eg: microsimulations like airline seating.  passengers needs to interact with the
+    // passengers around them as they jostle towardds their seats. Not enough just to queue.
+    // https://en.wikipedia.org/wiki/Microsimulation
+
+    static queue: Queue = new Queue('Sim Queue')      // every request object is in this queue
 
     // this is the function that logs, override it with setLogger()
     static logger: Function = (message: string) => console.log(`%c ${this.name}:  message`, "color:blue;background-color:white;")
 
+
     id: Symbol          // for classes that descends from Model, every instance is unique
     name: string
     entityType: 'Entity' | 'Buffer' | 'Store' | 'Facility'   // for logging
-    static currentSim: Object | null  // nice if we can access this from entities,but must avoid circular
-
-    static queue: TinyQueue   // every request is in this queue, might also be in other queues
-        = new TinyQueue('Sim Queue', (a: Request, b: Request) => a.timestamp < b.timestamp)
 
 
     // each entity can set its own rules for debugging
@@ -58,6 +60,13 @@ export class Model {
             else
                 console.log('%c' + message, `color:'${color}';background:'white';`)
 
+        }
+    }
+
+    /** useful for debugging simulations, also helps document them. */
+    assertTrue(condition: boolean, message: string) {
+        if (!condition) {
+            this.log(message, 'red', 'white');
         }
     }
 
