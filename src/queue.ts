@@ -22,25 +22,26 @@ export class Queue {
     /** insert  */
     public insert(value: Request) {         // was 'push', I want to avoid using JS names
         this._queue.push(value);
+
     }
 
     /** Retrieves, but does not remove, the head of this queue, or returns null if this queue is empty. */
-    public look(): Request | null {
+    public look(matchSignature: string): Request | null {
         if (this._queue.length === 0) {
             return null
         }
 
-        return this._queue.reduce((prev: Request, curr: Request) =>
+        return this._queue.filter((request) => request.signature == matchSignature).reduce((prev: Request, curr: Request) =>
             prev.timestamp < curr.timestamp ? prev : curr)
     }
 
 
     /** Returns the head of this queue, or thows error if this queue is empty.  So always look() before remove() */
-    public remove(): Request {
+    public remove(matchSignature: string): Request {
         if (this._queue.length === 0) {
             throw new Error('trying to remove from empty queue')
         } else {
-            this._queue.sort((prev: Request, curr: Request) => prev.timestamp - curr.timestamp)
+            let r = this._queue.filter((request)=>request.signature == matchSignature).sort((prev: Request, curr: Request) => prev.timestamp - curr.timestamp)
             this.display('after sort')
             return this._queue.shift()
         }
@@ -65,7 +66,7 @@ export class Queue {
 
     /** returns shallow copy array of elements meeting criteria */
     public filter(comparator: any) {
-        return  this._queue.filter(comparator)
+        return this._queue.filter(comparator)
     }
 
     /** logs that we entered and left, without changing anything */

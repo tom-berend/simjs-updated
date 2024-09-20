@@ -16,8 +16,12 @@ export class Sim extends Model {
     isRealTime: boolean
     realTimeClock: number = 0
 
-    events = 0;
+    events = 0
+    maxEvents = 1000
+    maxTime = 1000
     messages = 0
+
+    timer: any    // an id number for the timer, different for Node and for browser
 
     constructor(name: string = 'Sim', isRealTime: boolean = false) {
         super(name)
@@ -25,8 +29,6 @@ export class Sim extends Model {
         Model.currentSim = this  // register SIM object to parent so can access from entities.
 
         this.isRealTime = isRealTime
-        // set the real-time clock ticking
-        setInterval(() => this.realTimeClock += .1, 100)  // not very accurate
     }
 
     debug(level: number, message: string) { }
@@ -37,81 +39,140 @@ export class Sim extends Model {
 
         // fire all the start functions
         console.log('startlist entities', this.startList)
+        this.maxTime = endTime
+        this.maxEvents = maxEvents
         this.startList.map((entity: Entity) => entity['start']())
 
-        console.log('in simulate, sim queue size', Model.queue.size())
-        try {
+        this.timer = setInterval(() => this.simInterval(), 500)
 
-            // Get the earliest event
-            while (Model.queue.size() > 0) {
-
-
-                if (this.events > maxEvents) {
-                    console.log(`Simulation exceeded ${maxEvents} steps, terminated.`)
-                    break;
-                }
-
-                // we know there is an element in the queue (our while loop)
-                const ro: Request = Model.queue.remove();
-                console.log('processing next  Request:', ro)
-
-
-                // Uh oh.. we are out of time now
-                console.log(ro)
-                if (ro.deliverAt > endTime) {
-                    console.log(`Current request exceeds endtime ${endTime} seconds.simulation terminated.`)
-                    break;
-                }
-
-                // Advance simulation time
-                Model.simTime = ro.deliverAt;
-
-                // If this event is already cancelled, ignore
-                if (ro.cancelled) {
-                    continue
-                }
-
-                console.log('%c about to deliver', 'color:pink;', ro)
-                this.events += 1
-
-                console.log(`%c switch on ${ro.createdWith}`, 'color:green;', ro)
-                switch (ro.createdWith) {
-
-                    case 'setTimer':           //   set a timer
-                        if (!ro.cancelled) {
-                            ro.callbacks.map((callbackfn: Function) => { callbackfn(this) })
-                        }
-                        break;
-
-                    case 'useFacility':        //   use a facility
-                    case 'putBuffer':          //   put fungible tokens in a buffer
-                    case 'getBuffer':          //   get tokens from buffer
-                    case 'putStore':           //   store distinct objects in a store
-                    case 'getStore':           //   retrieve object from a store
-                    case 'waitEvent':          //   wait on an event
-                    case 'queueEvent':         //   queue on an event
-                        break;
-
-                    case 'sendMessage':        //   send a message entity-to-entity
-                        ro.callbacks[0](ro)    //   always only one callback
-                        // ro.cancel()
-                        this.messages += 1
-                        break
-                    default:
-                        throw new Error(`unknown Request, created with command ${ro.createdWith}`)
-                }
-
-
-            }
-
-            console.log(`Queue is empty.Simulation has ended in ${Model.simTime} seconds, ${this.events} events, ${this.messages} messages.`)
-            this.finalize();
-
-        } catch (error) {
-            console.error(error)
-        }
     }
 
+    /** filters in place, instead of reallocating and copying */
+    filterCancelled() {
+        console.log('Before removing cancelled: ', Model.queue);
+        let i = Model.queue.length;
+        while (i--) {
+            if (Model.queue[i].cancelled) {
+                Model.queue.splice(i, 1);
+            }
+        }
+        console.log('After removing cancelled: ', Model.queue);
+
+    }
+
+
+    simInterval = async () => {
+
+
+        if (this.events > this.maxEvents) {
+            console.log(`Simulation exceeded ${this.maxEvents} steps, terminated.`)
+            clearInterval(this.timer);
+        }
+
+        if (Model.simTime > this.maxTime) {
+            console.log(`Simulation exceeded ${this.maxTime} steps, terminated.`)
+            clearInterval(this.timer);
+        }
+
+
+        // // Uh oh.. we are out of time now
+        // console.log(ro)
+        // if (ro.deliverAt > endTime) {
+        //     console.log(`Current request exceeds endtime ${endTime} seconds.simulation terminated.`)
+        //     break;
+        // }
+
+        console.log('in simInterval, sim queue size', Model.queue.length)
+
+
+        // start by removing stuff already serviced and sorting in place (very fast if no changes)
+        this.filterCancelled()
+
+
+        if (Model.queue.length == 0) {
+            console.log(`Queue is empty.Simulation has ended in ${Model.simTime} seconds, ${this.events} events, ${this.messages} messages.`)
+            clearInterval(this.timer);
+            this.finalize();
+
+        } else {
+
+            Model.queue.sort((prev: Request, curr: Request) => prev.deliverAt - curr.deliverAt)
+
+            try {
+
+                // Get the earliest timer event and move the clock forward to it
+                let firstItem = Model.queue.find(ro => ro !== undefined);
+                console.log('%cfirstItem', 'color:pink;', firstItem)
+                Model.simTime = firstItem.deliverAt
+
+                if (firstItem.signature == 'setTimer' && firstItem.deliverAt <= Model.simTime) {
+                    firstItem.callback()
+                    firstItem.cancelled = true
+                }
+
+                if (firstItem.signature == 'sendMessage' && firstItem.deliverAt <= Model.simTime) {
+                    firstItem.callback()
+                    firstItem.cancelled = true
+                    this.messages += 1
+                    return
+                }
+
+
+
+                Model.queue.forEach((ro) => {
+
+                    // // Advance simulation time
+                    // Model.simTime = ro.deliverAt;
+
+                    // // If this event is already cancelled, ignore
+                    // if (ro.cancelled) {
+                    //     continue
+                    // }
+
+                    // console.log('%c about to deliver', 'color:pink;', ro)
+                    // this.events += 1
+
+                    // console.log(`%c switch on ${ro.signature}`, 'color:green;', ro)
+
+                    switch (ro.signature) {
+                        case 'putBuffer':          //   put fungible tokens in a buffer
+                            console.log('in putBuffer')
+                            if (((ro.onObject as BufferPool).capacity - (ro.onObject as BufferPool).inStorage) >= ro.bufferRequest) {
+                                (ro.onObject as BufferPool).inStorage += ro.bufferRequest
+                                ro.callback()
+                            }
+                            break;
+
+                        case 'getBuffer':          //   get tokens from buffer
+                            if ((ro.onObject as BufferPool).inStorage >= ro.bufferRequest) {
+                                (ro.onObject as BufferPool).inStorage -= ro.bufferRequest
+                                ro.callback()
+                            }
+                            break;
+
+                        case 'useFacility':        //   use a facility
+                        case 'putStore':           //   store distinct objects in a store
+                        case 'getStore':           //   retrieve object from a store
+                        case 'waitEvent':          //   wait on an event
+                        case 'queueEvent':         //   queue on an event
+
+                        case 'sendMessage':        // ignore, we handled it above
+                        case 'setTimer':
+                            break;
+
+                        default:
+                            throw new Error(`unknown Request, created with command ${ro.signature}`)
+                    }
+
+                })
+
+
+
+            } catch (error) {
+                console.error(error)
+            }
+        }
+    }
 
 
     time() {
@@ -166,13 +227,15 @@ export class Sim extends Model {
     */
     sendMessage(callback: Function, delay: number, toEntity: Entity) {
         // we just set up as if a timer.  the callback does all the work
+        console.log('sendMessage', Model.queue)
 
         const ro = new Request(Model.simTime + delay, 'sendMessage');
         // ro.createdBy = fromEntity
         ro.createdAt = Model.simTime
-        ro.callbacks.push(callback)
+        ro.callback = callback
 
-        Model.queue.insert(ro);
+        console.log('sendMessage 2', Model.queue)
+        Model.queue.push(ro);
     }
 
 }
@@ -227,7 +290,7 @@ export class Facility extends Sim {
     }
 
     reset() {
-        this.facilityQueue.clear();   // may have orphan Requests in the main queue
+        this.facilityQueue = [];   // may have orphan Requests in the main queue
         this.stats.reset();
         this.busyDuration = 0;
     }
@@ -236,26 +299,26 @@ export class Facility extends Sim {
         return this.stats;
     }
 
-    queueStats() {
-        return this.facilityQueue.report();
-    }
+    // queueStats() {
+    //     return this.facilityQueue.report();
+    // }
 
-    usage() {
-        return this.busyDuration;
-    }
+    // usage() {
+    //     return this.busyDuration;
+    // }
 
-    /** propagate finalize to  */
-    finalize() {
-        this.stats.finalize();
-        this.facilityQueue.finalize();
-    }
+    // /** propagate finalize to  */
+    // finalize() {
+    //     this.stats.finalize();
+    //     this.facilityQueue.finalize();
+    // }
 
     useFCFS(duration: number, ro: Request) {
         if ((this.maxqlen === 0 && !this.free)
             || (this.maxqlen > 0 && this.facilityQueue.size() >= this.maxqlen)) {
             ro.data = -1;
             ro.deliverAt = Model.simTime;
-            Sim.queue.insert(ro);
+            Model.queue.push(ro);
             return;
         }
 
@@ -263,230 +326,247 @@ export class Facility extends Sim {
         const now = Model.simTime;
 
         this.stats.enter(now);
-        this.facilityQueue.insert(ro);
+        this.facilityQueue.push(ro);
         this.useFCFSSchedule(now);
     }
 
-    useFCFSSchedule(timestamp: number) {
+    // useFCFSSchedule(timestamp: number) {
 
-        while (this.free > 0 && !this.facilityQueue.empty()) {
-            const ro = this.facilityQueue.remove();
+    //     while (this.free > 0 && !this.facilityQueue.length ==0) {
+    //         const ro = this.facilityQueue.remove();
 
-            if (ro.cancelled) {
-                continue;
-            }
-            for (let i = 0; i < this.serverStatus.length; i++) {
+    //         if (ro.cancelled) {
+    //             continue;
+    //         }
+    //         for (let i = 0; i < this.serverStatus.length; i++) {
 
-                if (this.serverStatus[i]) {
-                    this.serverStatus[i] = false;
-                    ro.data = i;
-                    break;
-                }
-            }
+    //             if (this.serverStatus[i]) {
+    //                 this.serverStatus[i] = false;
+    //                 ro.data = i;
+    //                 break;
+    //             }
+    //         }
 
-            this.free--;
-            this.busyDuration += ro.duration;
+    //         this.free--;
+    //         this.busyDuration += ro.duration;
 
-            // cancel all other reneging requests
-            ro.cancelRenegeClauses();
+    //         // cancel all other reneging requests
+    //         ro.cancelRenegeClauses();
 
-            const newro = new Request(timestamp + ro.duration, this.entityType);
+    //         const newro = new Request(timestamp + ro.duration, this.entityType);
 
-            newro.done(() => this.useFCFSCallback(ro));
+    //         newro.done(() => this.useFCFSCallback(ro));
 
-            Sim.queue.insert(newro);
-        }
-    }
+    //         Sim.queue.insert(newro);
+    //     }
+    // }
 
-    useFCFSCallback(ro: Request) {
-        // We have one more free server
-        this.free++;
-        this.serverStatus[ro.data] = true;
+    // useFCFSCallback(ro: Request) {
+    //     // We have one more free server
+    //     this.free++;
+    //     this.serverStatus[ro.data] = true;
 
-        this.stats.leave(ro.scheduledAt, ro.toEntity.time());
+    //     this.stats.leave(ro.scheduledAt, ro.toEntity.time());
 
-        // if there is someone waiting, schedule it now
-        this.useFCFSSchedule(ro.toEntity.time());
+    //     // if there is someone waiting, schedule it now
+    //     this.useFCFSSchedule(ro.toEntity.time());
 
-        // restore the deliver function, and deliver
-        ro.deliver();
+    //     // restore the deliver function, and deliver
+    //     ro.deliver();
 
-    }
+    // }
 
-    useLCFS(duration: number, ro: Request) {
+    // useLCFS(duration: number, ro: Request) {
 
-        // if there was a running request..
-        if (this.currentRO) {
-            this.busyDuration += (this.currentRO.toEntity.time() - this.currentRO.lastIssued);
-            // calcuate the remaining time
-            this.currentRO.remaining = (
-                this.currentRO.deliverAt - this.currentRO.toEntity.time());
-            // preempt it..
-            this.facilityQueue.q_push(this.currentRO, ro.toEntity.time());
-        }
+    //     // if there was a running request..
+    //     if (this.currentRO) {
+    //         this.busyDuration += (this.currentRO.toEntity.time() - this.currentRO.lastIssued);
+    //         // calcuate the remaining time
+    //         this.currentRO.remaining = (
+    //             this.currentRO.deliverAt - this.currentRO.toEntity.time());
+    //         // preempt it..
+    //         this.facilityQueue.q_push(this.currentRO, ro.toEntity.time());
+    //     }
 
-        this.currentRO = ro;
-        // If this is the first time..
-        if (!ro.saved_deliver) {
-            ro.cancelRenegeClauses();
-            ro.remaining = duration;
+    //     this.currentRO = ro;
+    //     // If this is the first time..
+    //     if (!ro.saved_deliver) {
+    //         ro.cancelRenegeClauses();
+    //         ro.remaining = duration;
 
-            ro.saved_deliver = ro.toEntity
-            ro.toEntity = this
+    //         ro.saved_deliver = ro.toEntity
+    //         ro.toEntity = this
 
-            this.stats.enter(ro.toEntity.time());
-        }
+    //         this.stats.enter(ro.toEntity.time());
+    //     }
 
-        ro.lastIssued = ro.toEntity.time();
+    //     ro.lastIssued = ro.toEntity.time();
 
-        // schedule this new event
-        ro.deliverAt = ro.toEntity.time() + duration;
-        Sim.queue.insert(ro);
-    }
+    //     // schedule this new event
+    //     ro.deliverAt = ro.toEntity.time() + duration;
+    //     Sim.queue.insert(ro);
+    // }
 
-    useLCFSCallback(ro: Request) {
-        const facility = this.source;
+    // useLCFSCallback(ro: Request) {
+    //     const facility = this.source;
 
-        //  sanity checks - should be OUR current RO
-        if (this.currentRO == null) {
-            console.error('strange')
-            return
-        } else {
-            if (ro.id !== this.currentRO.id) {
-                console.error('strange')
-                return;
-            }
+    //     //  sanity checks - should be OUR current RO
+    //     if (this.currentRO == null) {
+    //         console.error('strange')
+    //         return
+    //     } else {
+    //         if (ro.id !== this.currentRO.id) {
+    //             console.error('strange')
+    //             return;
+    //         }
 
-            if (this.currentRO.toEntity.id == this.currentRO.saved_deliver.id) {
-                console.error('strange, we store the ORIGINAL toEntity in save_deliver so we can send a message to ourselves')
-                return;
-            }
+    //         if (this.currentRO.toEntity.id == this.currentRO.saved_deliver.id) {
+    //             console.error('strange, we store the ORIGINAL toEntity in save_deliver so we can send a message to ourselves')
+    //             return;
+    //         }
 
-            // stats
-            this.busyDuration += (this.currentRO.toEntity.time() - this.lastIssued);
-            this.stats.leave(this.currentRO.scheduledAt, Model.simTime);
+    //         // stats
+    //         this.busyDuration += (this.currentRO.toEntity.time() - this.lastIssued);
+    //         this.stats.leave(this.currentRO.scheduledAt, Model.simTime);
 
-            // deliver this request
-            this.currentRO.toEntity = this.currentRO.saved_deliver;
-            // delete this.saved_deliver;
-            this.currentRO.deliver();
-            this.currentRO = null;
-        }
+    //         // deliver this request
+    //         this.currentRO.toEntity = this.currentRO.saved_deliver;
+    //         // delete this.saved_deliver;
+    //         this.currentRO.deliver();
+    //         this.currentRO = null;
+    //     }
 
-        // see if there are pending requests
-        if (!this.facilityQueue.empty()) {
-            const newRO = this.facilityQueue.q_pop(Model.simTime);
+    //     // see if there are pending requests
+    //     if (!this.facilityQueue.empty()) {
+    //         const newRO = this.facilityQueue.q_pop(Model.simTime);
 
-            this.useLCFS(newRO.remaining, newRO);
-        }
-    }
+    //         this.useLCFS(newRO.remaining, newRO);
+    //     }
+    // }
 
-    useProcessorSharing(duration: number, ro: Request) {
-        ro.duration = duration;
-        ro.cancelRenegeClauses();
-        this.stats.enter(ro.toEntity.time());
-        this.useProcessorSharingSchedule(ro, true);
-    }
+    // useProcessorSharing(duration: number, ro: Request) {
+    //     ro.duration = duration;
+    //     ro.cancelRenegeClauses();
+    //     this.stats.enter(ro.toEntity.time());
+    //     this.useProcessorSharingSchedule(ro, true);
+    // }
 
-    useProcessorSharingSchedule(ro: Request, isAdded: Boolean) {
-        const current = ro.toEntity.time();
+    // useProcessorSharingSchedule(ro: Request, isAdded: Boolean) {
+    //     const current = ro.toEntity.time();
 
-        const size = this.facilityQueue.size()
+    //     const size = this.facilityQueue.size()
 
-        const multiplier = isAdded ? ((size + 1.0) / size) : ((size - 1.0) / size);
+    //     const multiplier = isAdded ? ((size + 1.0) / size) : ((size - 1.0) / size);
 
-        const newQueue = [];
+    //     const newQueue = [];
 
-        if (this.facilityQueue.size() == 0) {
-            this.lastIssued = current;
-        }
+    //     if (this.facilityQueue.size() == 0) {
+    //         this.lastIssued = current;
+    //     }
 
-        // for (let i = 0; i < size; i++) {
+    // for (let i = 0; i < size; i++) {
 
-        //     const ev = Model.queue[i];
+    //     const ev = Model.queue[i];
 
-        //     if (ev.ro === ro) {
-        //         continue;
-        //     }
-        //     const newev = new Request(
-        //         this, current, current + (ev.deliverAt - current) * multiplier);
+    //     if (ev.ro === ro) {
+    //         continue;
+    //     }
+    //     const newev = new Request(
+    //         this, current, current + (ev.deliverAt - current) * multiplier);
 
-        //     newev.ro = ev.ro;
-        //     newev.source = this;
-        //     newev.deliver = this.useProcessorSharingCallback;
-        //     newQueue.push(newev);
+    //     newev.ro = ev.ro;
+    //     newev.source = this;
+    //     newev.deliver = this.useProcessorSharingCallback;
+    //     newQueue.push(newev);
 
-        //     ev.cancel();
-        //     ro.toEntity.queue.insert(newev);
-        // }
+    //     ev.cancel();
+    //     ro.toEntity.queue.insert(newev);
+    // }
 
-        // // add this new request
-        // if (isAdded) {
-        //     const newev = new Request(
-        //         this, current, current + ro.duration * (size + 1));
+    // // add this new request
+    // if (isAdded) {
+    //     const newev = new Request(
+    //         this, current, current + ro.duration * (size + 1));
 
-        //     newev.ro = ro;
-        //     newev.source = this;
-        //     newev.deliver = this.useProcessorSharingCallback;
-        //     newQueue.push(newev);
+    //     newev.ro = ro;
+    //     newev.source = this;
+    //     newev.deliver = this.useProcessorSharingCallback;
+    //     newQueue.push(newev);
 
-        //     ro.toEntity.queue.insert(newev);
-        // }
+    //     ro.toEntity.queue.insert(newev);
+    // }
 
-        // Model.queue = newQueue;
+    // Model.queue = newQueue;
 
-        // // usage statistics
-        // if (this.facilityQueue.length === 0) {
-        //     this.busyDuration += (current - this.lastIssued);
-        // }
-    }
+    // // usage statistics
+    // if (this.facilityQueue.length === 0) {
+    //     this.busyDuration += (current - this.lastIssued);
+    // }
+    // }
 
-    useProcessorSharingCallback() {
-        const fac = this.source;
 
-        //  sanity checks - should be OUR current RO
-        if (this.currentRO == null) {
-            console.error('strange')
-            return
-        } else {
-            if (this.currentRO.cancelled) return;
-            this.stats.leave(this.currentRO.scheduledAt, this.currentRO.toEntity.time());
+    // useProcessorSharingCallback() {
+    //     const fac = this.source;
 
-            this.useProcessorSharingSchedule(this.currentRO, false);
-            this.currentRO.deliver();
-        }
-    }
+    //     //  sanity checks - should be OUR current RO
+    //     if (this.currentRO == null) {
+    //         console.error('strange')
+    //         return
+    //     } else {
+    //         if (this.currentRO.cancelled) return;
+    //         this.stats.leave(this.currentRO.scheduledAt, this.currentRO.toEntity.time());
+
+    //         this.useProcessorSharingSchedule(this.currentRO, false);
+    //         this.currentRO.deliver();
+    //     }
+    // }
 }
 
 
 export class BufferPool extends Sim {           // 'Buffer' conflicts with node.js usage
     capacity: number
-    available: number
-    putQueue: Request[] = []
-    getQueue: Request[] = []
+    inStorage: number
 
-    constructor(name: string, capacity: number, initial: number = undefined) {
+    constructor(name: string, capacity: number, initial: number = 0) {
         super(name);
 
         this.entityType = 'Buffer'
 
         this.capacity = capacity;
-        this.available = (typeof initial === 'undefined') ? this.capacity : initial;
+        this.inStorage = this.capacity - initial
     }
 
     current() {
-        return this.available;
+        return this.inStorage;
     }
 
     size() {
         return this.capacity;
     }
 
-    get(amount: number):this {
+
+    // case 'putBuffer':          //   put fungible tokens in a buffer
+    // console.log('in putBuffer')
+    // if(((ro.onObject as BufferPool).capacity - (ro.onObject as BufferPool).inStorage) >= ro.bufferRequest) {
+    // (ro.onObject as BufferPool).inStorage += ro.bufferRequest
+    // ro.callbacks.map((callbackfn: Function) => { callbackfn(this) })
+    //
+    //
+    // case 'getBuffer':          //   get tokens from buffer
+    // if ((ro.onObject as BufferPool).inStorage >= ro.bufferRequest) {
+    // (ro.onObject as BufferPool).inStorage -= ro.bufferRequest
+    // ro.callbacks.map((callbackfn: Function) => { callbackfn(this) })
+    //
+
+
+
+
+    get(amount: number): this {
+
 
         if (this.getQueue.empty()
-            && amount <= this.available) {
-            this.available -= amount;
+            && amount <= this.inStorage) {
+            this.inStorage -= amount;
 
             ro.deliverAt = ro.toEntity.time();
             ro.toEntity.queue.insert(ro);
@@ -504,8 +584,8 @@ export class BufferPool extends Sim {           // 'Buffer' conflicts with node.
     put(amount: number, ro: Request) {
 
         if (this.putQueue.empty()
-            && (amount + this.available) <= this.capacity) {
-            this.available += amount;
+            && (amount + this.inStorage) <= this.capacity) {
+            this.inStorage += amount;
 
             ro.deliverAt = ro.toEntity.time();
             ro.toEntity.queue.insert(ro);
@@ -532,10 +612,10 @@ export class BufferPool extends Sim {           // 'Buffer' conflicts with node.
             }
 
             // see if this request can be satisfied
-            if (obj.amount <= this.available) {
+            if (obj.amount <= this.inStorage) {
                 // remove it..
                 this.getQueue.q_shift(obj.toEntity.time());
-                this.available -= obj.amount;
+                this.inStorage -= obj.amount;
                 obj.deliverAt = obj.toEntity.time();
                 obj.toEntity.queue.insert(obj);
             } else {
@@ -556,10 +636,10 @@ export class BufferPool extends Sim {           // 'Buffer' conflicts with node.
             }
 
             // see if this request can be satisfied
-            if (obj.amount + this.available <= this.capacity) {
+            if (obj.amount + this.inStorage <= this.capacity) {
                 // remove it..
                 this.putQueue.q_shift(obj.toEntity.time());
-                this.available += obj.amount;
+                this.inStorage += obj.amount;
                 obj.deliverAt = obj.toEntity.time();
                 obj.toEntity.queue.insert(obj);
             } else {
@@ -866,16 +946,14 @@ export class Entity extends Model {
         let endTime = Model.simTime + duration
         let ro = new Request(endTime, `setTimer`);
 
-        console.log('before', Sim.queue)
-        Sim.queue.insert(ro);
-        console.log('after', Sim.queue)
+        Model.queue.push(ro);
         return ro;
     }
 
     /** wait on an event.  When the event firest, ALL requests waiting for it will process. */
     waitEvent(event: Event): Request {
         let ro = new Request(Number.MAX_SAFE_INTEGER, `waitEvent`)
-        Sim.queue.insert(ro);     // in the main queue
+        Model.queue.push(ro);     // in the main queue
 
         if (event.isFired)
             ro.timestamp = Model.simTime  // fires right away, no need to queue
@@ -888,7 +966,7 @@ export class Entity extends Model {
     queueEvent(event: Event): Request {
         let timestamp = event.isFired ? Model.simTime : Number.MAX_SAFE_INTEGER  // now or later
         let ro = new Request(Number.MAX_SAFE_INTEGER, `queueEvent`)
-        Sim.queue.insert(ro);     // in the main queue
+        Model.queue.push(ro);     // in the main queue
 
         if (event.isFired)
             ro.timestamp = Model.simTime  // fires right away, no need to queue
@@ -902,58 +980,30 @@ export class Entity extends Model {
         let ro = new Request(Number.MAX_SAFE_INTEGER, `useFacility(${facility.name}, ${discipline}, ${duration})`);
         ro.discipline = discipline
         ro.duration = duration
-        Sim.queue.insert(ro);
+        Model.queue.push(ro);
         Facility.queue.insert(ro)
         return ro;
     }
 
 
-    /** Attempt to store amount number of the tokens in buffer, returning a Request. Here's
-     * an example of a producer making widgets, who only starts the next when the buffer has space
-     * for the current.
-     *```js
-    *  // Set timer to self (models the time spend in production)
-     * let Producer = {
-    *   start: function () {
-     * this.setTimer(timeToProduce).done(function () {
-     *        // Timer expires => item is ready to be stored in buffer.
-     *        // When the item is successfully stored in buffer, we repeat
-     *        //     the process by recursively calling the same function.
-     * this.putBuffer(buffer, 1).done(this.start);
-     *   });
-     * }
-}
-    * ```
-     */
+    /** Attempt to store amount number of the tokens in buffer, returning a Request.  */
     putBuffer(buffer: BufferPool, amount: number) {
+        console.log(`adding amount ${amount} to BufferPool ${buffer.name} `)
+        this.assertTrue(amount <= buffer.capacity, `Tried to add ${amount} to buffer ${buffer.name}) but capacity only ${buffer.capacity}`)
 
-        const ro = new Request(Model.simTime, `PutBuffer(${amount})`);
+        const ro = new Request(Model.simTime, 'putBuffer');
         ro.bufferRequest = amount
-        buffer.putQueue.insert(ro);
+        ro.onObject = buffer
         return ro;
     }
 
-    /** Attempt to retrieve amount number of tokens from buffer, returning a Request.  Here's
-     * an example of a consumer waiting for tokens.
-     *```js
-    *  var Consumer = {
-        *      start: function () {
-     *          // Retrieve one token from buffer
-     * this.getBuffer(buffer, 1).done(function () {
-     *              // After an item has been retrieved, wait for some time
-     *              //   to model the consumption time.
-     *              // After the waiting period is over, we repeat by
-     *              //   recursively calling this same function.
-     * this.setTimer(timeToConsume).done(this.start);
-     *          });
-     *      }
-    }
-        * ```
-     */
-    getBuffer(buffer: BufferPool, bufferRequest: number):Request {
+    /** Attempt to retrieve amount number of tokens from buffer, returning a Request. */
+    getBuffer(buffer: BufferPool, amount: number): Request {
+        console.log(`subtracting amount ${amount} from BufferPool ${buffer.name} `)
 
         const ro = new Request(Model.simTime, 'getBuffer');
-        ro.bufferRequest = bufferRequest
+        ro.bufferRequest = amount
+        ro.onObject = buffer
         return ro;
     }
 

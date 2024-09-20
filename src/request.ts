@@ -1,5 +1,6 @@
 // import { Model } from './model.js'
 import { Entity, Facility } from './sim.js'
+import { Model } from './model.js'
 
 
 /* When an entity makes a request to the simulation -- such as
@@ -39,6 +40,7 @@ import { Entity, Facility } from './sim.js'
 
 export class Request {
     timestamp: number  // this used to be in queueElement,for FIFO, LIFO, Priority
+    callback: Function
     // moved here to simplify heap.  The queue has a comparator,
     // for FIFO, use time()
     // for LIFO, use 0-time()
@@ -46,20 +48,23 @@ export class Request {
 
     data: any   // a freeform datastore in this Request
     createdBy: Entity | Facility | null = null
-    createdWith: string   // setTimer(), useFacility(), etc   how it was created
+    signature: string   // setTimer, useFacility, etc   how it was created
     source: Object   // shouldn't be necessary, callback knows
     createdAt: number
     scheduledAt: number
     deliverAt: number
-    callbacks: Function[]
     cancelled: Boolean
     // group: Request[]    // groups arentn't used
     noRenege = true
+
+    onObject: Object     // for example, which buffer, which facility is this request on
+
 
     // stuff used by Facilities
     duration = 0
     discipline: 'FIFO' | 'LIFO' | 'SHARE'
 
+    // buffers
     order = 0       // referenced by PQueue, never used
     bufferRequest = 0      // referenced by buffer
 
@@ -72,21 +77,19 @@ export class Request {
 
 
 
-    constructor(timestamp: number, createdWith: string) {
+    constructor(deliverAt: number, signature: string) {
 
-        this.timestamp = timestamp  // primary key for queue
-
-        this.scheduledAt = timestamp;
-        this.deliverAt = timestamp;
-        this.callbacks = [];
+        this.deliverAt = deliverAt // primary key for queue
+        this.scheduledAt = Model.simTime
         this.cancelled = false;
+        this.signature = signature
+
         // this.group = [];
-        this.createdWith = createdWith
         this.filter = () => true
         this.obj = () => true
         this.saved_deliver = null
 
-        console.log(`Create Request by ${createdWith} scheduled for ${this.scheduledAt}`)
+        console.log(`Create Request by ${signature} scheduled for ${this.scheduledAt}`)
 
     }
 
@@ -120,9 +123,9 @@ export class Request {
         // set flag
         this.cancelled = true;
 
-        if (this.deliverAt === 0) {
-            this.deliverAt = this.toEntity.time();
-        }
+        // if (this.deliverAt === 0) {
+        //     this.deliverAt = this.toEntity.time();
+        // }
 
         // if (this.source) {
         //     if ((this.source instanceof Buffer)
@@ -148,7 +151,7 @@ export class Request {
     /** Assign functions that must be called when the request is satisfied. */
     done(callback: (ro: Request) => void): Request {
 
-        this.callbacks.push(callback);
+        this.callback = callback;
         return this;
     }
 
@@ -194,9 +197,9 @@ export class Request {
 
 
     deliver() {
-        console.log(`Delivering Request created with ${this.createdWith}`, this)
+        console.log(`Delivering Request created with ${this.signature}`, this)
 
-        if (this.cancelled){
+        if (this.cancelled) {
             return this;
         }
 

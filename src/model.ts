@@ -1,11 +1,13 @@
-import { Queue } from "./queue.js"
+// import { Queue } from "./queue.js"
 import { Request } from "./request.js"
 
 export class Model {
 
 
     static simTime = 0   // static, only one since everyone inherits from this class
-    static endTime: number
+
+
+    static queue:Request[] = []
 
     static currentSim: Object | null   // allows us to access SIM from entities, but avoid circular ref
     static allEntities: Object[] = []  // allows entities to see each other if necessary
@@ -13,7 +15,7 @@ export class Model {
     // passengers around them as they jostle towardds their seats. Not enough just to queue.
     // https://en.wikipedia.org/wiki/Microsimulation
 
-    static queue: Queue = new Queue('Sim Queue')      // every request object is in this queue
+    // static queue: Queue = new Queue('Sim Queue')      // every request object is in this queue
 
     // this is the function that logs, override it with setLogger()
     static logger: Function = (message: string) => console.log(`%c ${this.name}:  message`, "color:blue;background-color:white;")

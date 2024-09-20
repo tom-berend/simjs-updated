@@ -4,7 +4,8 @@ $HTML = '';
 
 $demos = [
     // filename   demonstrates
-    ['pingpong', 'sendMessage()', 'Messages between two entities playing ping-pong.  <b>Start Here</b>'],
+    ['pingpong', 'sendMessage()', 'Messages between two entities playing ping-pong.  <b style="background-color:yellow;">Start Here</b>'],
+    ['buffer', 'putBuffer()<br>getBuffer()','A buffer shared between a producer and a consumer'],
     ['traffic', 'waitEvent()', 'Events at a traffic intersection. '],
 
     ['queuetest', 'Queue()', 'Tests the queue. '],
@@ -43,12 +44,12 @@ $HTML .= PHP_EOL . '</head>';
 
 $HTML .= PHP_EOL . '<body>';
 
-$HTML .= "<table>";
+$HTML .= "<table  >";
 foreach ($demos as $demo) {
     $HTML .= "<tr>
-        <td><a href='./?{$demo[0]}'><button type='button'>{$demo[0]}</button></a></td>
-        <td><b>{$demo[1]}</b></td>
-        <td>{$demo[2]}</td>
+        <td style='padding:10px;border-bottom:solid 1px blue;'><a href='./?{$demo[0]}'><button type='button'>{$demo[0]}</button></a></td>
+        <td style='border-bottom:solid 1px blue;'><b>{$demo[1]}</b></td>
+        <td style='border-bottom:solid 1px blue;'>{$demo[2]}</td>
     </tr>";
 }
 $HTML .= "</table>";

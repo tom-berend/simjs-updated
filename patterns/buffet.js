@@ -16,6 +16,7 @@ class State {
 }
 class Customer extends Entity {
     start() {
+        this.log('starting customer');
         this.order(); // order process
         let nextCustomerAt = TSX.StatisticsMath.randomExponential(1.0 / MeanArrival);
         this.setTimer(nextCustomerAt).done(this.start);

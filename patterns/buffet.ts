@@ -24,6 +24,7 @@ class State {
 class Customer extends Entity {
 
     start() {
+        this.log('starting customer')
         this.order();   // order process
 
         let nextCustomerAt = TSX.StatisticsMath.randomExponential(1.0 / MeanArrival);
@@ -45,6 +46,7 @@ class Customer extends Entity {
                 SIM.log("Customer LEAVE at ")//  + this.time() + " (entered at " + this.callbackData + ")");
 
             })
+
             // stats.leave(this.callbackData, this.time());
             //     }).setData(this.callbackData);
             // }).setData(this.time());
@@ -72,8 +74,8 @@ new Chef('Chef')
 SIM.simulate(1000);
 
 //return [
-    // State.stats.durationSeries.average(),
-    // State.stats.durationSeries.deviation(),
-    // State.stats.sizeSeries.average(),
-    // State.stats.sizeSeries.deviation()
+// State.stats.durationSeries.average(),
+// State.stats.durationSeries.deviation(),
+// State.stats.sizeSeries.average(),
+// State.stats.sizeSeries.deviation()
 // ];
