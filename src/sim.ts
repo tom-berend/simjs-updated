@@ -5,6 +5,21 @@ import { TimeSeries, DataSeries, Population } from './stats.js';
 import { Request } from './request.js'
 
 
+// const readKey = ():Promise<unknown> => new Promise(resolve => window.addEventListener('keypress', resolve, { once: true }));
+// const setTimeout = ():Promise<unknown> => new Promise(resolve => window.addEventListener('keypress', resolve, { once: true }));
+
+
+// (async function () {
+//     console.log('Press a key');
+//     const x = await readKey();
+//     console.log('Pressed', String.fromCharCode(x.which));
+
+//     console.log('Press a key');
+//     const y = await readKey();
+//     console.log('Pressed', String.fromCharCode(y.which));
+// }());
+
+
 // the system has Entities, Events, Stores, Buffers, Facilities that extend Model
 
 
@@ -21,7 +36,10 @@ export class Sim extends Model {
     maxTime = 1000
     messages = 0
 
-    timer: any    // an id number for the timer, different for Node and for browser
+    // Return promise which resolves after specified no. of milliseconds
+    timer = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    intervalTimer: any    // an id number for the timer, different for Node and for browser
 
     constructor(name: string = 'Sim', isRealTime: boolean = false) {
         super(name)
@@ -43,7 +61,7 @@ export class Sim extends Model {
         this.maxEvents = maxEvents
         this.startList.map((entity: Entity) => entity['start']())
 
-        this.timer = setInterval(() => this.simInterval(), 500)
+        this.intervalTimer = setInterval(() => this.simInterval(), 500)
 
     }
 
@@ -66,12 +84,12 @@ export class Sim extends Model {
 
         if (this.events > this.maxEvents) {
             console.log(`Simulation exceeded ${this.maxEvents} steps, terminated.`)
-            clearInterval(this.timer);
+            clearInterval(this.intervalTimer);
         }
 
         if (Model.simTime > this.maxTime) {
             console.log(`Simulation exceeded ${this.maxTime} steps, terminated.`)
-            clearInterval(this.timer);
+            clearInterval(this.intervalTimer);
         }
 
 
@@ -91,7 +109,7 @@ export class Sim extends Model {
 
         if (Model.queue.length == 0) {
             console.log(`Queue is empty.Simulation has ended in ${Model.simTime} seconds, ${this.events} events, ${this.messages} messages.`)
-            clearInterval(this.timer);
+            clearInterval(this.intervalTimer);
             this.finalize();
 
         } else {
@@ -100,21 +118,27 @@ export class Sim extends Model {
 
             try {
 
+
+                // timer = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
                 // Get the earliest timer event and move the clock forward to it
                 let firstItem = Model.queue.find(ro => ro !== undefined);
                 console.log('%cfirstItem', 'color:pink;', firstItem)
                 Model.simTime = firstItem.deliverAt
 
                 if (firstItem.signature == 'setTimer' && firstItem.deliverAt <= Model.simTime) {
-                    firstItem.callback()
+                    console.log(`at time ${Model.simTime} we found a Timer ready to resolve`)
+                    console.log(firstItem)
+                    firstItem.resolve(true)
                     firstItem.cancelled = true
                 }
 
                 if (firstItem.signature == 'sendMessage' && firstItem.deliverAt <= Model.simTime) {
-                    firstItem.callback()
+                    console.log(`at time ${Model.simTime} we found a Message ready to send`)
+                    // firstItem.callback()    // the message is a function call
+                    firstItem.resolve(firstItem.callback())
                     firstItem.cancelled = true
                     this.messages += 1
-                    return
                 }
 
 
@@ -170,6 +194,7 @@ export class Sim extends Model {
 
             } catch (error) {
                 console.error(error)
+                clearInterval(this.intervalTimer);
             }
         }
     }
@@ -225,18 +250,72 @@ export class Sim extends Model {
     * the two players as entities and the string as a message.
     *
     */
-    sendMessage(callback: Function, delay: number, toEntity: Entity) {
+    oldsendMessage(callback: Function, delay: number, toEntity: Entity) {
         // we just set up as if a timer.  the callback does all the work
         console.log('sendMessage', Model.queue)
 
         const ro = new Request(Model.simTime + delay, 'sendMessage');
         // ro.createdBy = fromEntity
         ro.createdAt = Model.simTime
-        ro.callback = callback
+        ro.callback = callback      // we'll do this at timeout
+
+        ro.promise = new Promise(resolve => { })
 
         console.log('sendMessage 2', Model.queue)
         Model.queue.push(ro);
     }
+
+
+    async setTimer(delay: number) {
+
+
+        console.log('arrived in setTimer()')
+
+        const ro = new Request(Model.simTime + delay, 'setTimer');
+        ro.createdAt = Model.simTime;
+
+        let { promise, resolve, reject } = Promise.withResolvers<any>();
+        ro.promise =  promise
+        ro.resolve = resolve
+
+        Model.queue.push(ro);
+        console.log('setTimer just pushed this into the queue',ro)
+
+        console.log('setTimer', Model.queue)
+
+        return ro.promise
+    }
+
+    /** send a message (usually to another entity) eg:  */
+    async sendMessage(callback:Function,delay: number=0) {
+
+
+        ////////////// if array, we can do this
+        // for (let el of array) {
+        //     await this.sleep(el);
+        //     console.log(el);
+        // };
+
+
+        const ro = new Request(Model.simTime + delay, 'sendMessage');
+        ro.createdAt = Model.simTime
+        ro.callback = callback      // we'll do this at timeout
+
+        let { promise, resolve, reject } = Promise.withResolvers();
+        ro.promise =  promise
+        ro.resolve = resolve
+
+        Model.queue.push(ro);
+        console.log('sendMessage just pushed this into the queue',ro)
+
+        console.log('sendMessage', Model.queue)
+        return ro.promise
+
+
+
+    }
+
+
 
 }
 
@@ -938,9 +1017,32 @@ export class Entity extends Model {
 
 
 
+    // setTimer(duration: number): Promise<unknown> {
+        // this.debug(3, `SetTimer(): Creating a new Request '${this.name}'`)
+        // let endTime = Model.simTime + duration
+        // let ro = new Request(endTime, `setTimer`);
+        // let promise = new Promise(resolve => { })
+        // ro.promise = promise
+        // Model.queue.push(ro);
+        // return promise
+    // }
+    // class Thenable {
+    //     constructor(num) {
+    //       this.num = num;
+    //     }
+    //     then(resolve, reject) {
+    //       alert(resolve);
+    //       // resolve with this.num*2 after 1000ms
+    //       setTimeout(() => resolve(this.num * 2), 1000); // (*)
+    //     }
+    //   }
+
+    // then(resolve,reject){
+
+    // }
 
     /** set a timer.  eg:   this.setTimer(n).done(callback) */
-    setTimer(duration: number): Request {
+    oldsetTimer(duration: number): Request {
         this.debug(3, `SetTimer(): Creating a new Request '${this.name}'`)
 
         let endTime = Model.simTime + duration

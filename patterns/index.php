@@ -4,6 +4,7 @@ $HTML = '';
 
 $demos = [
     // filename   demonstrates
+    ['timers', 'timers()', 'Basic async await testing'],
     ['pingpong', 'sendMessage()', 'Messages between two entities playing ping-pong.  <b style="background-color:yellow;">Start Here</b>'],
     ['buffer', 'putBuffer()<br>getBuffer()','A buffer shared between a producer and a consumer'],
     ['traffic', 'waitEvent()', 'Events at a traffic intersection. '],

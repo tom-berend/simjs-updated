@@ -26,38 +26,47 @@ class Player extends Entity {
         // use this.log instead of SIM.log, so messages come from Jack and Jill, not 'SIM'
         this.log(`start() Player ${this.name}`)  // don't have a color yet
 
+
         // possibility that we are the opponent who doesn't yet know who to play
-        if (this.opponent == null) {    // only Jill. Jack's opponent was set in init
+        if (typeof this.opponent !== "object") {    // only Jill. Jack's opponent was set in init
             // simply check back in 10 seconds by rerunning start
             this.playerColor = 'red'
             this.log("in START but don't know who my opponent is.  Nothing to do.")
             // maybe set a warning timer just in case
-            this.setTimer(60).done(() => { if (this.opponent == null) this.log("My opponent didn't show up.") })
+            await SIM.setTimer(60)
+
+            if (this.opponent == null) this.log("My opponent didn't show up.")
         } else {
             this.playerColor = 'blue'
             // i'm here first, tell my opponent that they are playing against ME
             this.log(`in START, I'm first, and about to tell ${this.opponent.name} who I am.`, this.playerColor)
             let tellOpponent = () => (this.opponent).setOpponent((this))
-            SIM.sendMessage(tellOpponent, 0, this.opponent);  //. send my info to opponent
+
+            await SIM.sendMessage(() => this.opponent.setOpponent(this), 0);  //. send my info to opponent
         }
     }
 
+    // setOpponent(otherPlayer: Player) {
 
-    setOpponent(otherPlayer: Player) {
-        this.log(`Player ${otherPlayer.name} has identified as my opponent`, 'orange')
+    //     this.opponent = otherPlayer
+    //     console.log(`%cPlayer ${this.opponent.name} has identified as my opponent`, 'orange')
+    //     SIM.sendMessage(this.opponent.firePingPong, 0);  //. send my info to opponent
+    // }
+
+    async setOpponent(otherPlayer: Player) {
         this.opponent = otherPlayer
+        console.log(`Player ${this.opponent.name} has identified as my opponent`, 'orange')
         // start the game by hitting the first pingpong
-        let newMessage = () => (this.opponent as Player).firePingPong('Starting the game ' + this.name);
-        SIM.sendMessage(newMessage, 0, this.opponent);  //. send my info to opponent
+        await SIM.sendMessage( () => this.opponent.firePingPong('Starting the game ' + this.name))
     }
 
 
-    firePingPong(message: string) {
-        this.log(`onMessage() Player '${this.name}  receives something'`, this.playerColor)
+    async firePingPong(message: string) {
+        console.log(`firePingPong() Player '${this.name}  receives '${message}'`, this.playerColor)
         // Receive message, add own name and send back
         if (this.messageCount++ < 10) {
-            let newMessage = () => (this.opponent as Player).firePingPong(this.messageCount.toString() + ' ' + this.name);
-            SIM.sendMessage(newMessage, 10, this.opponent);  // 10 second hold?
+            // let newMessage = ;
+            await SIM.sendMessage(() => this.opponent.firePingPong(this.messageCount.toString() + ' ' + this.name), 10);  // 10 second hold?
         }
     }
 };

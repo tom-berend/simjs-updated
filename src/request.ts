@@ -41,6 +41,9 @@ import { Model } from './model.js'
 export class Request {
     timestamp: number  // this used to be in queueElement,for FIFO, LIFO, Priority
     callback: Function
+    promise: Promise<any>
+    resolve: Function  // this is the callback that resolves the Promise above
+
     // moved here to simplify heap.  The queue has a comparator,
     // for FIFO, use time()
     // for LIFO, use 0-time()
@@ -89,10 +92,9 @@ export class Request {
         this.obj = () => true
         this.saved_deliver = null
 
-        console.log(`Create Request by ${signature} scheduled for ${this.scheduledAt}`)
+        console.log(`Create Request by ${signature} scheduled for ${this.deliverAt}`)
 
     }
-
 
     /* Note Special case with facilities.
     * In case of facilities with FIFO queuing discipline, the requesting entities go through two stages:
@@ -149,7 +151,7 @@ export class Request {
     }
 
     /** Assign functions that must be called when the request is satisfied. */
-    done(callback: (ro: Request) => void): Request {
+    done(callback: (ro: Request) => void): Promise {
 
         this.callback = callback;
         return this;
